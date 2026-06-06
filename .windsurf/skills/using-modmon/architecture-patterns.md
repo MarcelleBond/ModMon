@@ -33,27 +33,20 @@ MyApp.Orders/
 
 ### Example: Order Module DbContext
 ```csharp
-public class OrdersDbContext : DbContext
+// MyApp.Orders/Database/OrdersDbContext.cs
+using Microsoft.EntityFrameworkCore;
+
+namespace MyApp.Orders.Database;
+
+public sealed class OrdersDbContext : DbContext
 {
-    public DbSet<Order> Orders { get; set; }
-    public DbSet<OrderItem> OrderItems { get; set; }
-    
     public OrdersDbContext(DbContextOptions<OrdersDbContext> options)
-        : base(options) { }
-    
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
+        : base(options)
     {
-        modelBuilder.HasDefaultSchema("orders");
-        
-        modelBuilder.Entity<Order>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.OrderNumber).IsRequired();
-            entity.HasMany(e => e.Items)
-                  .WithOne()
-                  .HasForeignKey(e => e.OrderId);
-        });
     }
+    
+    // Add your DbSets here
+    // public DbSet<Order> Orders { get; set; }
 }
 ```
 
@@ -67,25 +60,21 @@ Each module exposes an extension method for service registration. The API projec
 // MyApp.Orders/Extensions/DependencyInjection.cs
 public static class DependencyInjection
 {
-    public static IServiceCollection AddOrdersModule(
+    public static IServiceCollection AddOrdersDI(
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Database context
+        var connectionString = configuration
+            .GetConnectionString("DefaultConnection")
+            ?? string.Empty;
+
         services.AddDbContext<OrdersDbContext>(options =>
-            options.UseNpgsql(
-                configuration.GetConnectionString("Orders"),
-                b => b.MigrationsAssembly("MyApp.Orders")));
+        {
+            options.UseNpgsql(connectionString);
+        });
         
-        // Services
-        services.AddScoped<IOrderService, OrderService>();
-        services.AddScoped<IOrderRepository, OrderRepository>();
-        
-        // AutoMapper profiles
-        services.AddAutoMapper(typeof(OrderProfile));
-        
-        // Validators
-        services.AddValidatorsFromAssemblyContaining<CreateOrderValidator>();
+        // Add your services here
+        // services.AddScoped<IOrderService, OrderService>();
         
         return services;
     }
@@ -94,15 +83,57 @@ public static class DependencyInjection
 
 ### API-Level Aggregation
 ```csharp
+// MyApp.Api/Extensions/DependencyInjection.cs
+public static class DependencyInjection
+{
+    public static IServiceCollection AddProjectModules(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddSharedKernelDI(configuration);
+        // <modules>
+        services.AddOrdersDI(configuration);
+        services.AddProductsDI(configuration);
+        services.AddCustomersDI(configuration);
+        // </modules>
+        return services;
+    }
+
+    public static WebApplication AddProjectDbUpMigrations(
+        this WebApplication app,
+        IConfiguration configuration)
+    {
+        // <dbup>
+        ThrowIfFailed("Orders", OrdersDbUp.TryMigrate(configuration));
+        ThrowIfFailed("Products", ProductsDbUp.TryMigrate(configuration));
+        ThrowIfFailed("Customers", CustomersDbUp.TryMigrate(configuration));
+        // </dbup>
+        return app;
+    }
+
+    private static void ThrowIfFailed(
+        string moduleName,
+        int exitCode)
+    {
+        if (exitCode == 0)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"DbUp migration failed for module '{moduleName}'.");
+    }
+}
+
 // MyApp.Api/Program.cs
 var builder = WebApplication.CreateBuilder(args);
 
-// ModMon automatically discovers and registers all module DI extensions
-builder.Services.AddOrdersModule(builder.Configuration);
-builder.Services.AddProductsModule(builder.Configuration);
-builder.Services.AddCustomersModule(builder.Configuration);
+builder.Services.AddProjectModules(builder.Configuration);
 
 var app = builder.Build();
+
+app.AddProjectDbUpMigrations(builder.Configuration);
+
 app.Run();
 ```
 
@@ -162,41 +193,67 @@ GROUP BY o.id, o.order_number, o.customer_id, o.order_date, o.total_amount, o.st
 
 ### DbUp Configuration
 ```csharp
-// MyApp.Orders/Database/DatabaseMigrator.cs
-public static class DatabaseMigrator
+// MyApp.Orders/Database/Scripts/DbUpMigrator.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using DbUp;
+using DbUp.Engine;
+using Microsoft.Extensions.Configuration;
+
+namespace MyApp.Orders.Database.Scripts;
+
+public static class DbUpMigrator
 {
-    public static void MigrateDatabase(string connectionString)
+    public static int TryMigrate(
+        IConfiguration configuration,
+        string? _ = null)
     {
-        EnsureDatabase.For.PostgresqlDatabase(connectionString);
-        
-        // Versioned scripts
-        var versionedUpgrader = DeployChanges.To
+        var connectionString = GetConnectionString(configuration);
+        var upgrader = BuildUpgrader(connectionString);
+        var result = upgrader.PerformUpgrade();
+        return result.Successful ? 0 : 1;
+    }
+
+    private static string GetConnectionString(IConfiguration configuration)
+    {
+        var conn = configuration.GetConnectionString("DefaultConnection");
+        return conn ?? string.Empty;
+    }
+
+    private static UpgradeEngine BuildUpgrader(
+        string connectionString)
+    {
+        var assembly = typeof(DbUpMigrator).Assembly;
+        var versioned = GetVersionedScriptNames(assembly);
+        var repeatable = GetRepeatableScriptNames(assembly);
+        var journalSchema = "orders"; // Module-specific schema
+        var journalTable = "schema_versions";
+
+        return DeployChanges.To
             .PostgresqlDatabase(connectionString)
-            .WithScriptsEmbeddedInAssembly(
-                Assembly.GetExecutingAssembly(),
-                s => s.Contains(".Database.Scripts.Versioned."))
+            .WithTransaction()
+            .JournalToPostgresqlTable(journalSchema, journalTable)
+            .WithVariablesDisabled()
+            .WithScriptsEmbeddedInAssembly(assembly, x => versioned.Contains(x))
+            .WithScriptsEmbeddedInAssembly(assembly, x => repeatable.Contains(x))
             .LogToConsole()
             .Build();
-        
-        var versionedResult = versionedUpgrader.PerformUpgrade();
-        
-        if (!versionedResult.Successful)
-            throw new Exception("Versioned migration failed", versionedResult.Error);
-        
-        // Repeatable scripts
-        var repeatableUpgrader = DeployChanges.To
-            .PostgresqlDatabase(connectionString)
-            .WithScriptsEmbeddedInAssembly(
-                Assembly.GetExecutingAssembly(),
-                s => s.Contains(".Database.Scripts.Repeatable."))
-            .JournalTo(new NullJournal()) // Always run
-            .LogToConsole()
-            .Build();
-        
-        var repeatableResult = repeatableUpgrader.PerformUpgrade();
-        
-        if (!repeatableResult.Successful)
-            throw new Exception("Repeatable migration failed", repeatableResult.Error);
+    }
+
+    private static HashSet<string> GetVersionedScriptNames(Assembly assembly)
+    {
+        return assembly.GetManifestResourceNames()
+            .Where(x => x.Contains(".Database.Scripts.Versioned."))
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static HashSet<string> GetRepeatableScriptNames(Assembly assembly)
+    {
+        return assembly.GetManifestResourceNames()
+            .Where(x => x.Contains(".Database.Scripts.Repeatable."))
+            .ToHashSet(StringComparer.Ordinal);
     }
 }
 ```
@@ -230,12 +287,45 @@ MyApp.SharedKernel/
 
 ### Base Entity Example
 ```csharp
-// MyApp.SharedKernel/Common/BaseEntity.cs
+// MyApp.SharedKernel/Database/Entities/BaseEntity.cs
+namespace MyApp.SharedKernel.Database.Entities;
+
 public abstract class BaseEntity
 {
-    public Guid Id { get; set; } = Guid.NewGuid();
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    private DateTime? _createdDate;
+    private DateTime? _modifiedDate;
+
+    public Guid Id { get; set; }
+    public string? CreationUserId { get; set; }
+    public string? ModificationUserId { get; set; }
+
+    public DateTime? CreatedDate
+    {
+        get => _createdDate;
+        set => _createdDate = value?.ToUniversalTime();
+    }
+
+    public DateTime? ModifiedDate
+    {
+        get => _modifiedDate;
+        set => _modifiedDate = value?.ToUniversalTime();
+    }
+
+    protected void EnsureDateTimeKind(ref DateTime? dateTime)
+    {
+        if (dateTime.HasValue && dateTime.Value.Kind == DateTimeKind.Unspecified)
+        {
+            dateTime = DateTime.SpecifyKind(dateTime.Value, DateTimeKind.Utc);
+        }
+    }
+
+    protected void EnsureDateTimeKind(ref DateTime dateTime)
+    {
+        if (dateTime.Kind == DateTimeKind.Unspecified)
+        {
+            dateTime = DateTime.SpecifyKind(dateTime, DateTimeKind.Utc);
+        }
+    }
 }
 ```
 
@@ -276,6 +366,14 @@ public class OrderService
     private readonly OrdersDbContext _ordersContext;
     private readonly ProductsDbContext _productsContext; // ❌ Wrong!
     
+    public OrderService(
+        OrdersDbContext ordersContext,
+        ProductsDbContext productsContext) // ❌ Never inject another module's DbContext!
+    {
+        _ordersContext = ordersContext;
+        _productsContext = productsContext;
+    }
+    
     public async Task CreateOrder(CreateOrderDto dto)
     {
         // ❌ Accessing another module's database directly
@@ -285,20 +383,93 @@ public class OrderService
 }
 ```
 
-### Correct Pattern: Interface-Based Communication
+### Correct Pattern: Interface-Based Communication via SharedKernel
+
+**Step 1: Define interface in SharedKernel**
 ```csharp
-// MyApp.Products/Interfaces/IProductService.cs
+// MyApp.SharedKernel/Interfaces/IProductService.cs
+namespace MyApp.SharedKernel.Interfaces;
+
 public interface IProductService
 {
     Task<ProductDto> GetProductAsync(Guid productId);
     Task<bool> IsProductAvailableAsync(Guid productId, int quantity);
 }
 
+public record ProductDto(
+    Guid Id,
+    string Name,
+    decimal Price,
+    int StockQuantity);
+```
+
+**Step 2: Implement interface in Products module**
+```csharp
+// MyApp.Products/Services/ProductService.cs
+using MyApp.SharedKernel.Interfaces;
+using MyApp.Products.Database;
+
+namespace MyApp.Products.Services;
+
+public class ProductService : IProductService
+{
+    private readonly ProductsDbContext _context;
+    
+    public ProductService(ProductsDbContext context)
+    {
+        _context = context;
+    }
+    
+    public async Task<ProductDto> GetProductAsync(Guid productId)
+    {
+        var product = await _context.Products
+            .FirstOrDefaultAsync(p => p.Id == productId);
+        
+        if (product == null)
+            return null;
+        
+        return new ProductDto(
+            product.Id,
+            product.Name,
+            product.Price,
+            product.StockQuantity);
+    }
+    
+    public async Task<bool> IsProductAvailableAsync(Guid productId, int quantity)
+    {
+        var product = await _context.Products
+            .FirstOrDefaultAsync(p => p.Id == productId);
+        
+        return product != null && product.StockQuantity >= quantity;
+    }
+}
+
+// MyApp.Products/Extensions/DependencyInjection.cs
+public static IServiceCollection AddProductsDI(
+    this IServiceCollection services,
+    IConfiguration configuration)
+{
+    // ... DbContext registration ...
+    
+    // ✅ Register implementation of SharedKernel interface
+    services.AddScoped<IProductService, ProductService>();
+    
+    return services;
+}
+```
+
+**Step 3: Use interface in Orders module**
+```csharp
 // MyApp.Orders/Services/OrderService.cs
+using MyApp.SharedKernel.Interfaces; // ✅ Reference SharedKernel interface
+using MyApp.Orders.Database;
+
+namespace MyApp.Orders.Services;
+
 public class OrderService
 {
     private readonly OrdersDbContext _context;
-    private readonly IProductService _productService; // ✅ Interface dependency
+    private readonly IProductService _productService; // ✅ SharedKernel interface
     
     public OrderService(
         OrdersDbContext context,
@@ -310,11 +481,17 @@ public class OrderService
     
     public async Task CreateOrder(CreateOrderDto dto)
     {
-        // ✅ Using interface to communicate with Products module
+        // ✅ Using SharedKernel interface to communicate with Products module
         var product = await _productService.GetProductAsync(dto.ProductId);
         
         if (product == null)
             throw new NotFoundException("Product not found");
+        
+        var isAvailable = await _productService
+            .IsProductAvailableAsync(dto.ProductId, dto.Quantity);
+        
+        if (!isAvailable)
+            throw new BusinessRuleException("Insufficient stock");
         
         var order = new Order
         {
@@ -330,15 +507,64 @@ public class OrderService
 ```
 
 ### Event-Based Communication (Advanced)
+
+**Important:** Events must be defined in SharedKernel to respect module boundaries.
+
+#### Step 1: Define Event Infrastructure in SharedKernel
+
 ```csharp
 // MyApp.SharedKernel/Events/IEvent.cs
+namespace MyApp.SharedKernel.Events;
+
 public interface IEvent
 {
     Guid EventId { get; }
     DateTime OccurredAt { get; }
 }
 
-// MyApp.Orders/Events/OrderCreatedEvent.cs
+// MyApp.SharedKernel/Events/IEventHandler.cs
+public interface IEventHandler<TEvent> where TEvent : IEvent
+{
+    Task HandleAsync(TEvent @event, CancellationToken cancellationToken = default);
+}
+
+// MyApp.SharedKernel/Events/IEventDispatcher.cs
+public interface IEventDispatcher
+{
+    Task DispatchAsync<TEvent>(TEvent @event, CancellationToken cancellationToken = default) 
+        where TEvent : IEvent;
+}
+
+// MyApp.SharedKernel/Events/EventDispatcher.cs
+public class EventDispatcher : IEventDispatcher
+{
+    private readonly IServiceProvider _serviceProvider;
+
+    public EventDispatcher(IServiceProvider serviceProvider)
+    {
+        _serviceProvider = serviceProvider;
+    }
+
+    public async Task DispatchAsync<TEvent>(TEvent @event, CancellationToken cancellationToken = default) 
+        where TEvent : IEvent
+    {
+        var handlers = _serviceProvider.GetServices<IEventHandler<TEvent>>();
+        
+        foreach (var handler in handlers)
+        {
+            await handler.HandleAsync(@event, cancellationToken);
+        }
+    }
+}
+```
+
+#### Step 2: Define Domain Events in SharedKernel
+
+```csharp
+// ✅ CORRECT: Event in SharedKernel (not in Orders module)
+// MyApp.SharedKernel/Events/OrderCreatedEvent.cs
+namespace MyApp.SharedKernel.Events;
+
 public class OrderCreatedEvent : IEvent
 {
     public Guid EventId { get; } = Guid.NewGuid();
@@ -346,19 +572,200 @@ public class OrderCreatedEvent : IEvent
     public Guid OrderId { get; set; }
     public Guid CustomerId { get; set; }
     public decimal TotalAmount { get; set; }
+    public List<Guid> ProductIds { get; set; } = new();
 }
+```
 
+#### Step 3: Register Event Dispatcher in SharedKernel
+
+```csharp
+// MyApp.SharedKernel/Extensions/DependencyInjection.cs
+namespace MyApp.SharedKernel;
+
+public static class DependencyInjection
+{
+    public static IServiceCollection AddSharedKernelDI(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        // Register event dispatcher
+        services.AddScoped<IEventDispatcher, EventDispatcher>();
+        
+        return services;
+    }
+}
+```
+
+#### Step 4: Publish Events from Orders Module
+
+```csharp
+// MyApp.Orders/Services/OrderService.cs
+using MyApp.SharedKernel.Events;
+using MyApp.Orders.Database;
+
+namespace MyApp.Orders.Services;
+
+public class OrderService
+{
+    private readonly OrdersDbContext _context;
+    private readonly IEventDispatcher _eventDispatcher;
+
+    public OrderService(
+        OrdersDbContext context,
+        IEventDispatcher eventDispatcher)
+    {
+        _context = context;
+        _eventDispatcher = eventDispatcher;
+    }
+
+    public async Task<Guid> CreateOrderAsync(CreateOrderDto dto)
+    {
+        var order = new Order
+        {
+            Id = Guid.NewGuid(),
+            CustomerId = dto.CustomerId,
+            TotalAmount = dto.TotalAmount
+        };
+
+        _context.Orders.Add(order);
+        await _context.SaveChangesAsync();
+
+        // ✅ Publish event after successful save
+        var @event = new OrderCreatedEvent
+        {
+            OrderId = order.Id,
+            CustomerId = order.CustomerId,
+            TotalAmount = order.TotalAmount,
+            ProductIds = dto.Items.Select(i => i.ProductId).ToList()
+        };
+
+        await _eventDispatcher.DispatchAsync(@event);
+
+        return order.Id;
+    }
+}
+```
+
+#### Step 5: Handle Events in Inventory Module
+
+```csharp
 // MyApp.Inventory/EventHandlers/OrderCreatedEventHandler.cs
+using MyApp.SharedKernel.Events;
+using MyApp.Inventory.Database;
+using Microsoft.Extensions.Logging;
+
+namespace MyApp.Inventory.EventHandlers;
+
 public class OrderCreatedEventHandler : IEventHandler<OrderCreatedEvent>
 {
     private readonly InventoryDbContext _context;
-    
-    public async Task HandleAsync(OrderCreatedEvent @event)
+    private readonly ILogger<OrderCreatedEventHandler> _logger;
+
+    public OrderCreatedEventHandler(
+        InventoryDbContext context,
+        ILogger<OrderCreatedEventHandler> logger)
     {
-        // Update inventory based on order creation
-        // This keeps modules decoupled
+        _context = context;
+        _logger = logger;
+    }
+
+    public async Task HandleAsync(
+        OrderCreatedEvent @event, 
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation(
+            "Reserving inventory for order {OrderId}", 
+            @event.OrderId);
+
+        foreach (var productId in @event.ProductIds)
+        {
+            var inventory = await _context.InventoryItems
+                .FirstOrDefaultAsync(i => i.ProductId == productId, cancellationToken);
+
+            if (inventory != null)
+            {
+                inventory.ReservedQuantity += 1;
+            }
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
     }
 }
+
+// MyApp.Inventory/Extensions/DependencyInjection.cs
+public static IServiceCollection AddInventoryDI(
+    this IServiceCollection services,
+    IConfiguration configuration)
+{
+    // ... DbContext registration ...
+
+    // ✅ Register event handler
+    services.AddScoped<IEventHandler<OrderCreatedEvent>, OrderCreatedEventHandler>();
+
+    return services;
+}
+```
+
+#### Benefits of This Pattern
+
+**✅ Loose Coupling**
+- Inventory module doesn't depend on Orders module
+- Orders module doesn't depend on Inventory module
+- Both only depend on SharedKernel
+
+**✅ Multiple Handlers**
+Multiple modules can react to the same event:
+
+```csharp
+// Inventory reserves stock
+services.AddScoped<IEventHandler<OrderCreatedEvent>, ReserveInventoryHandler>();
+
+// Notifications sends email
+services.AddScoped<IEventHandler<OrderCreatedEvent>, SendOrderConfirmationHandler>();
+
+// Analytics tracks metrics
+services.AddScoped<IEventHandler<OrderCreatedEvent>, TrackOrderMetricsHandler>();
+```
+
+**✅ Easy Microservice Migration**
+When extracting to microservices, replace in-process dispatcher with message bus:
+
+```csharp
+// Future: Replace EventDispatcher with RabbitMQ/Azure Service Bus
+public class MessageBusEventDispatcher : IEventDispatcher
+{
+    private readonly IMessageBus _messageBus;
+    
+    public async Task DispatchAsync<TEvent>(TEvent @event, ...) 
+    {
+        // Publish to message queue instead of in-process
+        await _messageBus.PublishAsync(@event);
+    }
+}
+```
+
+**❌ Anti-Pattern: Events in Module**
+
+```csharp
+// ❌ WRONG: Event defined in Orders module
+// MyApp.Orders/Events/OrderCreatedEvent.cs
+public class OrderCreatedEvent : IEvent { }
+
+// ❌ WRONG: Inventory depends on Orders module
+// MyApp.Inventory/EventHandlers/OrderCreatedEventHandler.cs
+using MyApp.Orders.Events; // ❌ Creates module dependency!
+
+public class OrderCreatedEventHandler : IEventHandler<OrderCreatedEvent>
+{
+    // This violates module boundaries
+}
+```
+
+**Why this is wrong:**
+- Creates circular or tight coupling between modules
+- Violates module boundaries
+- Makes microservice extraction difficult
+- Event should be a contract (SharedKernel), not implementation detail
 ```
 
 ## Structured Logging Pattern
@@ -369,22 +776,24 @@ Use Serilog with structured logging for observability. ModMon configures this au
 ### Configuration (Auto-Generated)
 ```csharp
 // MyApp.Api/Extensions/SerilogExtensions.cs
+using Microsoft.Extensions.Hosting;
+using Serilog;
+using Serilog.Events;
+using Serilog.Formatting.Compact;
+
+namespace MyApp.Api.Extensions;
+
 public static class SerilogExtensions
 {
-    public static IHostBuilder UseSerilogLogging(this IHostBuilder host)
+    public static void SerilogConfiguration(this ConfigureHostBuilder host)
     {
-        return host.UseSerilog((context, configuration) =>
+        host.UseSerilog((_, _, loggerConfiguration) =>
         {
-            configuration
-                .ReadFrom.Configuration(context.Configuration)
+            loggerConfiguration
+                .MinimumLevel.Information()
+                .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
                 .Enrich.FromLogContext()
-                .Enrich.WithMachineName()
-                .Enrich.WithEnvironmentName()
-                .WriteTo.Console(new JsonFormatter())
-                .WriteTo.File(
-                    new JsonFormatter(),
-                    "logs/log-.txt",
-                    rollingInterval: RollingInterval.Day);
+                .WriteTo.Console(new RenderedCompactJsonFormatter());
         });
     }
 }
@@ -433,53 +842,71 @@ Centralized exception handling in middleware ensures consistent error responses.
 
 ### Implementation (Auto-Generated)
 ```csharp
-// MyApp.SharedKernel/Middleware/ExceptionHandlingMiddleware.cs
-public class ExceptionHandlingMiddleware
+// MyApp.SharedKernel/Middleware/GlobalExceptionHandlingMiddleware.cs
+using System.Net;
+using Microsoft.AspNetCore.Http;
+using Newtonsoft.Json;
+using Serilog;
+using MyApp.SharedKernel.Common;
+using MyApp.SharedKernel.Exceptions;
+
+namespace MyApp.SharedKernel.Middleware;
+
+public sealed class GlobalExceptionHandlingMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly ILogger<ExceptionHandlingMiddleware> _logger;
-    
+
+    public GlobalExceptionHandlingMiddleware(RequestDelegate next)
+    {
+        _next = next;
+    }
+
     public async Task InvokeAsync(HttpContext context)
     {
         try
         {
             await _next(context);
         }
-        catch (NotFoundException ex)
+        catch (BaseBadRequestException ex)
         {
-            await HandleExceptionAsync(context, ex, StatusCodes.Status404NotFound);
+            await WriteErrorAsync(context, ex.Message, HttpStatusCode.BadRequest);
         }
-        catch (ValidationException ex)
+        catch (BaseNotFoundException ex)
         {
-            await HandleExceptionAsync(context, ex, StatusCodes.Status400BadRequest);
+            await WriteErrorAsync(context, ex.Message, HttpStatusCode.NotFound);
         }
-        catch (BusinessRuleException ex)
+        catch (BaseConflictException ex)
         {
-            await HandleExceptionAsync(context, ex, StatusCodes.Status422UnprocessableEntity);
+            await WriteErrorAsync(context, ex.Message, HttpStatusCode.Conflict);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unhandled exception occurred");
-            await HandleExceptionAsync(context, ex, StatusCodes.Status500InternalServerError);
+            Log.Error(ex, "Unhandled exception: {message}", ex.Message);
+            await WriteErrorAsync(
+                context,
+                "We encountered a technical error.",
+                HttpStatusCode.InternalServerError);
         }
     }
-    
-    private async Task HandleExceptionAsync(
+
+    private static async Task WriteErrorAsync(
         HttpContext context,
-        Exception exception,
-        int statusCode)
+        string message,
+        HttpStatusCode code)
     {
-        context.Response.ContentType = "application/json";
-        context.Response.StatusCode = statusCode;
-        
-        var response = new
+        var requestId = context.Items[
+            Constants.HttpContextKeys.REQUEST_ID_KEY] as Guid?;
+
+        var errorResponse = new GenericExceptionModel
         {
-            error = exception.Message,
-            statusCode = statusCode,
-            timestamp = DateTime.UtcNow
+            RequestGuid = requestId ?? Guid.Empty,
+            ErrorMessage = message
         };
-        
-        await context.Response.WriteAsJsonAsync(response);
+
+        var jsonResponse = JsonConvert.SerializeObject(errorResponse);
+        context.Response.StatusCode = (int)code;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsync(jsonResponse);
     }
 }
 ```
@@ -491,28 +918,47 @@ Use multi-stage builds with chiseled runtime images for minimal attack surface a
 
 ### Dockerfile (Auto-Generated)
 ```dockerfile
-# Build stage
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# BUILD STAGE
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG TARGETARCH
 WORKDIR /src
 
 COPY ["MyApp.Api/MyApp.Api.csproj", "MyApp.Api/"]
 COPY ["MyApp.SharedKernel/MyApp.SharedKernel.csproj", "MyApp.SharedKernel/"]
+# <modules>
 COPY ["MyApp.Orders/MyApp.Orders.csproj", "MyApp.Orders/"]
-
-RUN dotnet restore "MyApp.Api/MyApp.Api.csproj"
+# </modules>
+RUN dotnet restore "MyApp.Api/MyApp.Api.csproj" -a $TARGETARCH
 
 COPY . .
 WORKDIR "/src/MyApp.Api"
-RUN dotnet build "MyApp.Api.csproj" -c Release -o /app/build
+RUN dotnet publish "MyApp.Api.csproj" \
+    -c Release \
+    -o /app/publish \
+    -a $TARGETARCH \
+    --no-restore \
+    /p:UseAppHost=false \
+    /p:PublishReadyToRun=true
 
-# Publish stage
-FROM build AS publish
-RUN dotnet publish "MyApp.Api.csproj" -c Release -o /app/publish
-
-# Runtime stage (chiseled image)
+# RUNTIME STAGE (Using Chiseled for Security & Size)
+# No shell, no apt, no root. Perfect for k3s.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-chiseled AS final
 WORKDIR /app
-COPY --from=publish /app/publish .
+COPY --from=build /app/publish .
+
+# k3s will handle the user context; Chiseled is non-root by default (UID 1654)
+USER app
+
+EXPOSE 8080
+
+# OBSERVABILITY CONFIGURATION
+# 1. Structured Logging for Loki
+ENV Logging__Console__FormatterName=json
+# 2. Globalization invariant mode (Saves space if you don't need culture-specific logic)
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=true
+# 3. Ensure OTel/Metrics are enabled
+ENV OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_ENABLE_METRICS=true
+
 ENTRYPOINT ["dotnet", "MyApp.Api.dll"]
 ```
 

@@ -274,12 +274,19 @@ Each module has its own `DbContext`:
 
 ```csharp
 // ECommerce.Orders/Database/OrdersDbContext.cs
-public class OrdersDbContext : DbContext
+using Microsoft.EntityFrameworkCore;
+
+namespace ECommerce.Orders.Database;
+
+public sealed class OrdersDbContext : DbContext
 {
-    public DbSet<Order> Orders { get; set; }
-    
     public OrdersDbContext(DbContextOptions<OrdersDbContext> options)
-        : base(options) { }
+        : base(options)
+    {
+    }
+    
+    // Add your DbSets here
+    // public DbSet<Order> Orders { get; set; }
 }
 ```
 
@@ -289,27 +296,105 @@ Modules register their services via extension methods:
 
 ```csharp
 // ECommerce.Orders/Extensions/DependencyInjection.cs
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using ECommerce.Orders.Database;
+
+namespace ECommerce.Orders.Extensions;
+
 public static class DependencyInjection
 {
-    public static IServiceCollection AddOrdersModule(
+    public static IServiceCollection AddOrdersDI(
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        var connectionString = configuration
+            .GetConnectionString("DefaultConnection")
+            ?? string.Empty;
+
         services.AddDbContext<OrdersDbContext>(options =>
-            options.UseNpgsql(configuration.GetConnectionString("Orders")));
+        {
+            options.UseNpgsql(connectionString);
+        });
         
-        services.AddScoped<IOrderService, OrderService>();
+        // Add your services here
+        // services.AddScoped<IOrderService, OrderService>();
         
         return services;
     }
 }
 ```
 
-API project automatically discovers and registers all modules.
+```csharp
+// ECommerce.Api/Extensions/DependencyInjection.cs
+using ECommerce.SharedKernel;
+using ECommerce.Orders.Extensions;
+using OrdersDbUp = ECommerce.Orders.Database.Scripts.DbUpMigrator;
+
+namespace ECommerce.Api.Extensions;
+
+public static class DependencyInjection
+{
+    public static IServiceCollection AddProjectModules(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddSharedKernelDI(configuration);
+        // <modules>
+        services.AddOrdersDI(configuration);
+        // </modules>
+        return services;
+    }
+
+    public static WebApplication AddProjectDbUpMigrations(
+        this WebApplication app,
+        IConfiguration configuration)
+    {
+        // <dbup>
+        ThrowIfFailed("Orders", OrdersDbUp.TryMigrate(configuration));
+        // </dbup>
+        return app;
+    }
+
+    private static void ThrowIfFailed(
+        string moduleName,
+        int exitCode)
+    {
+        if (exitCode == 0)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"DbUp migration failed for module '{moduleName}'.");
+    }
+}
+```
+
+API project automatically discovers and registers all modules via the `AddProjectModules` extension method.
 
 ### DbUp Migration Management
 
-Each module uses DbUp for database migrations:
+Each module uses DbUp for database migrations with a `TryMigrate` method:
+
+```csharp
+// ECommerce.Orders/Database/Scripts/DbUpMigrator.cs
+public static class DbUpMigrator
+{
+    public static int TryMigrate(
+        IConfiguration configuration,
+        string? _ = null)
+    {
+        var connectionString = GetConnectionString(configuration);
+        var upgrader = BuildUpgrader(connectionString);
+        var result = upgrader.PerformUpgrade();
+        return result.Successful ? 0 : 1;
+    }
+    
+    // ... implementation details in architecture-patterns.md
+}
+```
 
 **Versioned Scripts** (one-time execution):
 ```
@@ -327,6 +412,8 @@ Database/Scripts/Repeatable/
 └── Functions/
     └── fn_CalculateOrderTotal.sql
 ```
+
+Migrations are executed at application startup via `app.AddProjectDbUpMigrations(configuration)`.
 
 ## Common Scenarios
 
@@ -363,6 +450,108 @@ modmon module add --name OrderProcessing
 modmon module add --name InventoryManagement
 # Each module can later become a microservice
 ```
+
+## Cross-Module Communication
+
+**Important:** Modules communicate through interfaces defined in SharedKernel, NOT through direct database access.
+
+### ✅ Correct Pattern: SharedKernel Interfaces
+
+**Step 1: Define interface in SharedKernel**
+```csharp
+// ECommerce.SharedKernel/Interfaces/IProductService.cs
+namespace ECommerce.SharedKernel.Interfaces;
+
+public interface IProductService
+{
+    Task<ProductDto> GetProductAsync(Guid productId);
+    Task<bool> IsProductAvailableAsync(Guid productId, int quantity);
+}
+
+public record ProductDto(
+    Guid Id,
+    string Name,
+    decimal Price,
+    int StockQuantity);
+```
+
+**Step 2: Implement in Products module**
+```csharp
+// ECommerce.Products/Services/ProductService.cs
+using ECommerce.SharedKernel.Interfaces;
+
+public class ProductService : IProductService
+{
+    private readonly ProductsDbContext _context;
+    
+    // Implementation...
+}
+
+// ECommerce.Products/Extensions/DependencyInjection.cs
+public static IServiceCollection AddProductsDI(...)
+{
+    // ... DbContext registration ...
+    
+    // Register SharedKernel interface implementation
+    services.AddScoped<IProductService, ProductService>();
+    
+    return services;
+}
+```
+
+**Step 3: Use in Orders module**
+```csharp
+// ECommerce.Orders/Services/OrderService.cs
+using ECommerce.SharedKernel.Interfaces; // ✅ Reference SharedKernel
+
+public class OrderService
+{
+    private readonly OrdersDbContext _context;
+    private readonly IProductService _productService; // ✅ SharedKernel interface
+    
+    public OrderService(
+        OrdersDbContext context,
+        IProductService productService)
+    {
+        _context = context;
+        _productService = productService;
+    }
+    
+    public async Task CreateOrder(CreateOrderDto dto)
+    {
+        // ✅ Use interface to communicate with Products module
+        var product = await _productService.GetProductAsync(dto.ProductId);
+        // ...
+    }
+}
+```
+
+### ❌ Anti-Pattern: Direct Cross-Module Database Access
+
+```csharp
+// ❌ NEVER DO THIS
+public class OrderService
+{
+    private readonly OrdersDbContext _ordersContext;
+    private readonly ProductsDbContext _productsContext; // ❌ Wrong!
+    
+    public OrderService(
+        OrdersDbContext ordersContext,
+        ProductsDbContext productsContext) // ❌ Never inject another module's DbContext!
+    {
+        _ordersContext = ordersContext;
+        _productsContext = productsContext;
+    }
+}
+```
+
+**Why this is wrong:**
+- Violates module boundaries
+- Creates tight coupling between modules
+- Makes it impossible to extract modules to microservices later
+- Breaks the modular monolith pattern
+
+**Always use SharedKernel interfaces for cross-module communication.**
 
 ## Red Flags & Common Mistakes
 
@@ -549,16 +738,24 @@ modmon validate || {
    # Ensures PostgreSQL, API, and all modules run consistently
    ```
 
+7. **Use SharedKernel interfaces for cross-module communication**
+   - Define interfaces in `SharedKernel/Interfaces/`
+   - Implement in the owning module
+   - Reference from consuming modules
+   - Never inject another module's DbContext
+
 ## Success Criteria
 
 A successful ModMon implementation should:
 - ✅ Pass `modmon validate` without errors
 - ✅ All modules listed in `modmon module list`
 - ✅ Application runs via `dotnet run` or `docker-compose up`
-- ✅ Each module has its own DbContext and DI registration
-- ✅ DbUp migrations execute successfully on startup
-- ✅ Serilog structured logging works correctly
+- ✅ Each module has its own DbContext and DI registration (using `Add{Module}DI` pattern)
+- ✅ DbUp migrations execute successfully on startup via `AddProjectDbUpMigrations`
+- ✅ Serilog structured logging works correctly (RenderedCompactJsonFormatter)
 - ✅ Global exception handling catches and logs errors
+- ✅ Cross-module communication uses SharedKernel interfaces only
+- ✅ No direct cross-module database access
 
 ## Related Documentation
 
