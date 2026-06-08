@@ -82,6 +82,30 @@ internal static class SharedKernelTemplates
 		WriteFile(
 			fileSystem,
 			kernelRoot,
+			Path.Combine("Events", "IEvent.cs"),
+			KernelTemplates.IEvent(projectName));
+
+		WriteFile(
+			fileSystem,
+			kernelRoot,
+			Path.Combine("Events", "IEventHandler.cs"),
+			KernelTemplates.IEventHandler(projectName));
+
+		WriteFile(
+			fileSystem,
+			kernelRoot,
+			Path.Combine("Events", "IEventDispatcher.cs"),
+			KernelTemplates.IEventDispatcher(projectName));
+
+		WriteFile(
+			fileSystem,
+			kernelRoot,
+			Path.Combine("Events", "EventDispatcher.cs"),
+			KernelTemplates.EventDispatcher(projectName));
+
+		WriteFile(
+			fileSystem,
+			kernelRoot,
 			Path.Combine("Extensions", "DependencyInjection.cs"),
 			KernelTemplates.DependencyInjection(projectName));
 	}
@@ -484,11 +508,87 @@ public sealed class ModelStateValidationFilter : IActionFilter
 """;
 		}
 
+		public static string IEvent(string projectName)
+		{
+			return $$"""
+namespace {{projectName}}.SharedKernel.Events;
+
+public interface IEvent
+{
+	Guid EventId { get; }
+	DateTime OccurredAt { get; }
+}
+""";
+		}
+
+		public static string IEventHandler(string projectName)
+		{
+			return $$"""
+namespace {{projectName}}.SharedKernel.Events;
+
+public interface IEventHandler<TEvent> where TEvent : IEvent
+{
+	Task HandleAsync(
+		TEvent @event,
+		CancellationToken cancellationToken = default);
+}
+""";
+		}
+
+		public static string IEventDispatcher(string projectName)
+		{
+			return $$"""
+namespace {{projectName}}.SharedKernel.Events;
+
+public interface IEventDispatcher
+{
+	Task DispatchAsync<TEvent>(
+		TEvent @event,
+		CancellationToken cancellationToken = default)
+		where TEvent : IEvent;
+}
+""";
+		}
+
+		public static string EventDispatcher(string projectName)
+		{
+			return $$"""
+using Microsoft.Extensions.DependencyInjection;
+
+namespace {{projectName}}.SharedKernel.Events;
+
+public sealed class EventDispatcher : IEventDispatcher
+{
+	private readonly IServiceProvider _serviceProvider;
+
+	public EventDispatcher(IServiceProvider serviceProvider)
+	{
+		_serviceProvider = serviceProvider;
+	}
+
+	public async Task DispatchAsync<TEvent>(
+		TEvent @event,
+		CancellationToken cancellationToken = default)
+		where TEvent : IEvent
+	{
+		var handlers = _serviceProvider
+			.GetServices<IEventHandler<TEvent>>();
+
+		foreach (var handler in handlers)
+		{
+			await handler.HandleAsync(@event, cancellationToken);
+		}
+	}
+}
+""";
+		}
+
 		public static string DependencyInjection(string projectName)
 		{
 			return $$"""
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using {{projectName}}.SharedKernel.Events;
 
 namespace {{projectName}}.SharedKernel;
 
@@ -498,6 +598,9 @@ public static class DependencyInjection
 		this IServiceCollection services,
 		IConfiguration configuration)
 	{
+		// Register event dispatcher for in-process event handling
+		services.AddScoped<IEventDispatcher, EventDispatcher>();
+
 		return services;
 	}
 }
