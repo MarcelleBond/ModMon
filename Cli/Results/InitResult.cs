@@ -10,6 +10,7 @@ public record InitResult(
 	string? RepoRoot = null,
 	List<string>? CreatedProjects = null,
 	List<string>? CreatedFiles = null,
+	List<string>? SkippedFiles = null,
 	bool DryRun = false,
 	List<DryRunOperation>? Operations = null,
 	Dictionary<string, object>? Data = null,

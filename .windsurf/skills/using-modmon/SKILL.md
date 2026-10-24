@@ -53,6 +53,8 @@ modmon init --name <ProjectName> [--output <Path>]
 
 **What it creates:**
 - `<ProjectName>.sln` - Solution file
+- `AGENTS.md` - concise project-specific agent guidance
+- `.agent/modmon/` - detailed ModMon skill and architecture guidance
 - `<ProjectName>.Api` - ASP.NET Core Web API with Serilog, global exception handling
 - `<ProjectName>.SharedKernel` - Shared kernel library with common utilities
 - `Dockerfile` and `docker-compose.yml` - Production-ready Docker configuration
@@ -159,7 +161,9 @@ modmon info --path C:\Projects\ECommerce --format json
 modmon validate [--path <Path>] [--format json]
 ```
 
-**Purpose:** Verify project structure integrity, check for missing files, validate module setup
+**Purpose:** Check required project files and enforce project-reference
+boundaries between the API, modules, and SharedKernel. It does not analyze
+C# source usage.
 
 **Example:**
 ```bash

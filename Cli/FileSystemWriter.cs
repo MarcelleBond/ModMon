@@ -28,6 +28,11 @@ internal sealed class FileSystemWriter : IFileSystemWriter
 		return File.Exists(path);
 	}
 
+	public string ReadFile(string path)
+	{
+		return File.ReadAllText(path);
+	}
+
 	public bool DirectoryExists(string path)
 	{
 		return Directory.Exists(path);

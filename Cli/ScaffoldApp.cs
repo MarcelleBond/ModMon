@@ -40,7 +40,7 @@ internal sealed class ModMonApp
 			"init" => await RunInitAsync(remainder, output),
 			"module" => await RunModuleAsync(remainder, output),
 			"info" => RunInfo(remainder, output),
-			"validate" => RunValidate(remainder, output),
+			"validate" => await RunValidateAsync(remainder, output),
 			"--help" or "-h" => PrintHelpAndReturnSuccess(),
 			_ => PrintUnknownAndReturnFailure(command)
 		};
@@ -270,10 +270,12 @@ internal sealed class ModMonApp
 		return handler.Handle(options.Path);
 	}
 
-	private int RunValidate(string[] args, IOutputWriter output)
+	private async Task<int> RunValidateAsync(
+		string[] args,
+		IOutputWriter output)
 	{
 		var options = InfoOptions.Parse(args);
 		var handler = new ValidateCommandHandler(_fileSystem, output);
-		return handler.Handle(options.Path);
+		return await handler.HandleAsync(options.Path);
 	}
 }

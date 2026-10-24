@@ -61,6 +61,11 @@ modmon validate --format json && modmon module list --format json
 ### After `modmon init --name MyApp`
 ```
 MyApp/
+├── AGENTS.md
+├── .agent/modmon/
+│   ├── SKILL.md
+│   ├── architecture-patterns.md
+│   └── quick-reference.md
 ├── MyApp.sln
 ├── Dockerfile
 ├── docker-compose.yml
@@ -229,20 +234,32 @@ modmon info --format json
 ```
 
 ### Validation
+
+Checks the project structure and project-reference graph. It does not analyze
+C# source usage; unresolved project configuration fails validation.
+
 ```bash
 modmon validate --format json
 ```
 ```json
 {
-  "isValid": true,
-  "errors": [],
-  "warnings": [],
-  "checkedItems": [
-    "Solution file exists",
-    "API project exists",
-    "SharedKernel project exists",
-    "All modules have DbContext",
-    "All modules have DI registration"
+  "success": true,
+  "message": "Project structure or boundaries have issues",
+  "exitCode": "ValidationFailed",
+  "command": "validate",
+  "valid": false,
+  "projectName": "MyApp",
+  "checks": [
+    {
+      "name": "Project reference boundary",
+      "passed": false,
+      "message": "Module-to-module project reference is not allowed",
+      "ruleId": "project-boundary",
+      "projectPath": "MyApp.Orders.csproj"
+    }
+  ],
+  "errors": [
+    "MyApp.Orders (Module) cannot reference MyApp.Products (Module)"
   ]
 }
 ```

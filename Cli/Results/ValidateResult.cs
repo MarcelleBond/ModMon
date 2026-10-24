@@ -20,8 +20,3 @@ public record ValidateResult(
 		Data,
 		Errors,
 		Warnings);
-
-public record ValidationCheck(
-	string Name,
-	bool Passed,
-	string? Message = null);

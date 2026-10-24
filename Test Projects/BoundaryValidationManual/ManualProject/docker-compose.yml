@@ -1,0 +1,30 @@
+services:
+  api:
+    image: ManualShop-api:dev
+    container_name: ManualShop-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - db
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=ManualShop;Username=ManualShop;Password=ManualShop-dev
+    ports:
+      - "8080:8080"
+
+  db:
+    image: postgres:16
+    container_name: ManualShop-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ManualShop
+      POSTGRES_USER: ManualShop
+      POSTGRES_PASSWORD: ManualShop-dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - ManualShop_pgdata:/var/lib/postgresql/data
+
+volumes:
+  ManualShop_pgdata:

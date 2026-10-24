@@ -13,146 +13,156 @@ internal sealed class ValidateCommandHandler
 		_output = output;
 	}
 
-	public int Handle(string? path)
+	public async Task<int> HandleAsync(string? path)
 	{
 		var startDirectory = string.IsNullOrWhiteSpace(path)
 			? Directory.GetCurrentDirectory()
-			: Path.GetFullPath(path);
+			: path;
+		var catalog = await new SolutionProjectCatalogReader()
+			.ReadAsync(startDirectory);
 
-		var provider = new ProjectInfoProvider(_fileSystem);
-		var projectInfo = provider.GetProjectInfo(startDirectory);
+		return catalog.Error == null
+			? await WriteValidationAsync(catalog)
+			: WriteCatalogError(catalog);
+	}
 
-		if (projectInfo == null)
-		{
-			var errorResult = new ValidateResult(
-				Success: false,
-				Message: "Validation failed",
-				ExitCode: ExitCode.ResourceNotFound,
-				Timestamp: DateTime.UtcNow,
-				Valid: false,
-				Errors: new List<string>
-				{
-					"No solution file found in directory tree"
-				});
-			_output.WriteError(errorResult.Message, errorResult);
-			return (int)ExitCode.ResourceNotFound;
-		}
-
-		var checks = new List<ValidationCheck>();
-		var errors = new List<string>();
-
-		checks.Add(CheckSolutionExists(projectInfo, errors));
-		checks.Add(CheckApiProjectExists(projectInfo, errors));
-		checks.Add(CheckSharedKernelExists(projectInfo, errors));
-		checks.Add(CheckDiAggregatorExists(projectInfo, errors));
-		checks.Add(CheckDockerfileExists(projectInfo, errors));
-
-		var allPassed = checks.All(c => c.Passed);
-
+	private int WriteCatalogError(SolutionProjectCatalog catalog)
+	{
+		var exitCode = catalog.NotFound
+			? ExitCode.ResourceNotFound
+			: ExitCode.ValidationFailed;
+		var check = new ValidationCheck(
+			"Solution discovery",
+			false,
+			catalog.Error,
+			ValidationRuleIds.SolutionDiscovery);
 		var result = new ValidateResult(
-			Success: true,
-			Message: allPassed
-				? "Project structure is valid"
-				: "Project structure has issues",
-			ExitCode: allPassed ? ExitCode.Success : ExitCode.ValidationFailed,
+			Success: false,
+			Message: "Validation could not inspect the solution",
+			ExitCode: exitCode,
 			Timestamp: DateTime.UtcNow,
-			Valid: allPassed,
-			ProjectName: projectInfo.ProjectName,
-			Checks: checks,
-			Errors: errors.Count > 0 ? errors : null);
+			Valid: false,
+			Checks: new List<ValidationCheck> { check },
+			Errors: new List<string> { catalog.Error! });
 
-		if (allPassed)
-		{
-			_output.WriteSuccess(result);
-		}
-		else
-		{
-			_output.WriteError(result.Message, result);
-		}
+		_output.WriteSuccess(result);
+		return (int)exitCode;
+	}
 
+	private async Task<int> WriteValidationAsync(
+		SolutionProjectCatalog catalog)
+	{
+		var result = await CreateValidationResultAsync(catalog);
+		_output.WriteSuccess(result);
 		return (int)result.ExitCode;
 	}
 
-	private ValidationCheck CheckSolutionExists(
-		ProjectInfo projectInfo,
-		List<string> errors)
+	private async Task<ValidateResult> CreateValidationResultAsync(
+		SolutionProjectCatalog catalog)
 	{
-		var exists = _fileSystem.FileExists(projectInfo.SolutionPath);
-		if (!exists)
+		var checks = await BuildChecksAsync(catalog);
+		var allPassed = checks.All(check => check.Passed);
+		var errors = checks
+			.Where(check => !check.Passed)
+			.Select(check => check.Message!)
+			.ToList();
+		return new ValidateResult(
+			Success: true,
+			Message: GetValidationMessage(allPassed),
+			ExitCode: allPassed
+				? ExitCode.Success
+				: ExitCode.ValidationFailed,
+			Timestamp: DateTime.UtcNow,
+			Valid: allPassed,
+			ProjectName: catalog.ProjectName,
+			Checks: checks,
+			Errors: errors.Count == 0 ? null : errors);
+	}
+
+	private static string GetValidationMessage(bool allPassed)
+	{
+		return allPassed
+			? "Project structure and boundaries are valid"
+			: "Project structure or boundaries have issues";
+	}
+
+	private async Task<List<ValidationCheck>> BuildChecksAsync(
+		SolutionProjectCatalog catalog)
+	{
+		var checks = new List<ValidationCheck>
 		{
-			errors.Add($"Solution file not found: {projectInfo.SolutionPath}");
-		}
+			CheckSolutionExists(catalog),
+			CheckApiProjectExists(catalog),
+			CheckSharedKernelExists(catalog),
+			CheckDiAggregatorExists(catalog),
+			CheckDockerfileExists(catalog)
+		};
+		var boundaryValidator = new ProjectReferenceBoundaryValidator(
+			new ProjectReferenceReader());
+		checks.AddRange(await boundaryValidator.ValidateAsync(catalog));
+		return checks;
+	}
+
+	private ValidationCheck CheckSolutionExists(
+		SolutionProjectCatalog catalog)
+	{
+		var exists = _fileSystem.FileExists(catalog.SolutionPath!);
 		return new ValidationCheck(
 			"Solution file exists",
 			exists,
-			exists ? null : $"Missing: {projectInfo.SolutionPath}");
+			exists ? null : $"Missing: {catalog.SolutionPath}",
+			ValidationRuleIds.SolutionExists);
 	}
 
-	private ValidationCheck CheckApiProjectExists(
-		ProjectInfo projectInfo,
-		List<string> errors)
+	private static ValidationCheck CheckApiProjectExists(
+		SolutionProjectCatalog catalog)
 	{
-		var apiProject = $"{projectInfo.ProjectName}.Api";
-		var exists = projectInfo.Projects.Contains(apiProject);
-		if (!exists)
-		{
-			errors.Add($"API project not found: {apiProject}");
-		}
+		var name = $"{catalog.ProjectName}.Api";
+		var exists = catalog.Projects.Any(project => project.Name == name);
 		return new ValidationCheck(
 			"API project exists",
 			exists,
-			exists ? null : $"Missing: {apiProject}");
+			exists ? null : $"Missing: {name}",
+			ValidationRuleIds.ApiProject);
 	}
 
-	private ValidationCheck CheckSharedKernelExists(
-		ProjectInfo projectInfo,
-		List<string> errors)
+	private static ValidationCheck CheckSharedKernelExists(
+		SolutionProjectCatalog catalog)
 	{
-		var kernelProject = $"{projectInfo.ProjectName}.SharedKernel";
-		var exists = projectInfo.Projects.Contains(kernelProject);
-		if (!exists)
-		{
-			errors.Add($"SharedKernel project not found: {kernelProject}");
-		}
+		var name = $"{catalog.ProjectName}.SharedKernel";
+		var exists = catalog.Projects.Any(project => project.Name == name);
 		return new ValidationCheck(
 			"SharedKernel project exists",
 			exists,
-			exists ? null : $"Missing: {kernelProject}");
+			exists ? null : $"Missing: {name}",
+			ValidationRuleIds.SharedKernelProject);
 	}
 
 	private ValidationCheck CheckDiAggregatorExists(
-		ProjectInfo projectInfo,
-		List<string> errors)
+		SolutionProjectCatalog catalog)
 	{
 		var diPath = Path.Combine(
-			projectInfo.RepoRoot,
-			$"{projectInfo.ProjectName}.Api",
+			catalog.RepoRoot!,
+			$"{catalog.ProjectName}.Api",
 			"Extensions",
 			"DependencyInjection.cs");
 		var exists = _fileSystem.FileExists(diPath);
-		if (!exists)
-		{
-			errors.Add($"DI aggregator file not found: {diPath}");
-		}
 		return new ValidationCheck(
 			"DI aggregator file exists",
 			exists,
-			exists ? null : $"Missing: {diPath}");
+			exists ? null : $"Missing: {diPath}",
+			ValidationRuleIds.DiAggregator);
 	}
 
 	private ValidationCheck CheckDockerfileExists(
-		ProjectInfo projectInfo,
-		List<string> errors)
+		SolutionProjectCatalog catalog)
 	{
-		var dockerfilePath = Path.Combine(projectInfo.RepoRoot, "Dockerfile");
+		var dockerfilePath = Path.Combine(catalog.RepoRoot!, "Dockerfile");
 		var exists = _fileSystem.FileExists(dockerfilePath);
-		if (!exists)
-		{
-			errors.Add($"Dockerfile not found: {dockerfilePath}");
-		}
 		return new ValidationCheck(
 			"Dockerfile exists",
 			exists,
-			exists ? null : $"Missing: {dockerfilePath}");
+			exists ? null : $"Missing: {dockerfilePath}",
+			ValidationRuleIds.Dockerfile);
 	}
 }

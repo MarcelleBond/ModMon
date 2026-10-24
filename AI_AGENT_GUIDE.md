@@ -42,6 +42,10 @@ All commands support these global options:
 - `--verbose` (optional) - Enable verbose logging
 - `--log-file <path>` (optional) - Log to file
 
+`init` generates project-specific `AGENTS.md` and `.agent/modmon/`
+guidance. ModMon-owned files may be updated; unmarked existing user files are
+preserved and reported in `skippedFiles`.
+
 **JSON Output (Success):**
 ```json
 {
@@ -57,7 +61,13 @@ All commands support these global options:
     "ECommerce.Api",
     "ECommerce.SharedKernel"
   ],
-  "createdFiles": [],
+  "createdFiles": [
+    "C:\\Projects\\ECommerce\\AGENTS.md",
+    "C:\\Projects\\ECommerce\\.agent\\modmon\\SKILL.md",
+    "C:\\Projects\\ECommerce\\.agent\\modmon\\architecture-patterns.md",
+    "C:\\Projects\\ECommerce\\.agent\\modmon\\quick-reference.md"
+  ],
+  "skippedFiles": [],
   "dryRun": false
 }
 ```
@@ -204,12 +214,17 @@ All commands support these global options:
 - `--path <Path>` (optional) - Project directory (default: current directory)
 - `--format json` (optional) - Output as JSON
 
+Validation enforces project-reference boundaries: API projects may reference
+modules and SharedKernel; modules may reference SharedKernel only; SharedKernel
+may not reference application projects. Dynamic or unresolved references fail
+validation. This checks the project graph, not C# source usage.
+
 **JSON Output (Valid):**
 ```json
 {
   "success": true,
-  "message": "Project structure is valid",
-  "exitCode": 0,
+  "message": "Project structure and boundaries are valid",
+  "exitCode": "Success",
   "timestamp": "2026-05-22T17:45:00Z",
   "command": "validate",
   "valid": true,
@@ -234,6 +249,11 @@ All commands support these global options:
     {
       "name": "Dockerfile exists",
       "passed": true
+    },
+    {
+      "name": "Project reference boundary",
+      "passed": true,
+      "message": "Project reference boundaries are valid"
     }
   ]
 }
@@ -243,8 +263,8 @@ All commands support these global options:
 ```json
 {
   "success": true,
-  "message": "Project structure has issues",
-  "exitCode": 5,
+  "message": "Project structure or boundaries have issues",
+  "exitCode": "ValidationFailed",
   "timestamp": "2026-05-22T17:45:00Z",
   "command": "validate",
   "valid": false,
@@ -271,11 +291,19 @@ All commands support these global options:
     {
       "name": "Dockerfile exists",
       "passed": true
+    },
+    {
+      "name": "Project reference boundary",
+      "passed": false,
+      "message": "Module-to-module project reference is not allowed",
+      "ruleId": "project-boundary",
+      "projectPath": "ECommerce.Orders.csproj"
     }
   ],
   "errors": [
     "API project not found: ECommerce.Api",
-    "DI aggregator file not found: C:\\Projects\\ECommerce\\ECommerce.Api\\Extensions\\DependencyInjection.cs"
+    "DI aggregator file not found: C:\\Projects\\ECommerce\\ECommerce.Api\\Extensions\\DependencyInjection.cs",
+    "Module-to-module project reference is not allowed"
   ]
 }
 ```

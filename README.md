@@ -128,6 +128,10 @@ modmon init --name <ProjectName> [--output <Path>]
 - `--name` (required): Name of the project
 - `--output` (optional): Target directory (defaults to current directory)
 
+`init` also generates project-specific AI guidance in `AGENTS.md` and
+`.agent/modmon/`. ModMon-owned guidance files may be regenerated; existing
+unmarked user files are preserved.
+
 **Example:**
 ```bash
 modmon init --name ECommerce
@@ -156,11 +160,18 @@ modmon module add --name Customers --output C:\Projects\MyApp
 modmon info [--path <Path>] [--format json]
 ```
 
-### Validate Project Structure
+### Validate Project Structure and Boundaries
 
 ```bash
 modmon validate [--path <Path>] [--format json]
 ```
+
+Validation checks required project files and enforces project-reference
+boundaries: the API may reference only modules and SharedKernel; modules may
+reference only SharedKernel, not one another. Unresolved project-reference
+configuration fails validation rather than being assumed valid. This checks
+the project graph only; it does not analyze C# source usage. Boundary or
+unverifiable-reference failures return exit code 5.
 
 ### List Modules
 

@@ -229,7 +229,16 @@ modmon module add --name Customers --output C:\Projects\MyProject
 
 ### What Happens During `init`
 
-When you run `modmon init --name MyProject`, the tool executes the following steps:
+When you run `modmon init --name MyProject`, the tool executes the following steps
+and generates project-specific AI guidance:
+
+- `AGENTS.md` for concise repository-level agent instructions
+- `.agent/modmon/SKILL.md` for ModMon workflows
+- `.agent/modmon/architecture-patterns.md` for architecture rules
+- `.agent/modmon/quick-reference.md` for common commands
+
+ModMon-owned guidance can be regenerated. Existing unmarked user files are
+preserved and reported as skipped.
 
 #### 1. **Solution & Project Creation**
 
@@ -672,11 +681,19 @@ modmon validate [--path <Path>] [--format json]
 - `--format json` (optional) - Output as JSON
 
 **Validation Checks:**
-- Solution file exists
-- API project exists
-- SharedKernel project exists
-- DI aggregator file exists
-- Dockerfile exists
+- Solution, API project, SharedKernel project, DI aggregator, and Dockerfile
+  exist
+- API project references only modules and SharedKernel
+- Modules reference SharedKernel and do not reference other modules or the API
+- SharedKernel does not reference application projects
+- Architecture project references are in the solution and form an acyclic graph
+
+Literal project references and literal imported project files are inspected.
+Conditional literal references are included in the graph. Dynamic references,
+unsupported imports, malformed project files, and references outside the
+solution fail validation because their boundaries cannot be verified. The
+validator does not inspect C# source code or runtime behavior. Boundary and
+unverifiable-reference failures return exit code 5.
 
 **Example:**
 ```bash

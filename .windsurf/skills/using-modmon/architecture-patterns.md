@@ -159,19 +159,8 @@ MyApp.Orders/Database/Scripts/
 ### Versioned Migration Example
 ```sql
 -- 001_CreateOrdersTable.sql
-CREATE TABLE orders.orders (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    order_number VARCHAR(50) NOT NULL UNIQUE,
-    customer_id UUID NOT NULL,
-    order_date TIMESTAMP NOT NULL DEFAULT NOW(),
-    total_amount DECIMAL(18,2) NOT NULL,
-    status VARCHAR(20) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_orders_customer_id ON orders.orders(customer_id);
-CREATE INDEX idx_orders_order_date ON orders.orders(order_date);
+INSERT INTO orders.orders (order_number, customer_id, order_date, total_amount, status)
+VALUES ('ORD-001', '123e4567-e89b-12d3-a456-426614174000', NOW(), 100.00, 'Pending');
 ```
 
 ### Repeatable Script Example
@@ -967,6 +956,15 @@ ENTRYPOINT ["dotnet", "MyApp.Api.dll"]
 - **Security**: No shell, package manager, or unnecessary tools
 - **Fast builds**: Layer caching optimizes rebuild times
 - **Production-ready**: Includes health checks and proper signal handling
+
+## Project Boundary Validation
+
+`modmon validate` enforces the project-reference graph: the API may reference
+modules and SharedKernel, while modules may reference SharedKernel but not
+other modules or the API. SharedKernel may not reference API or module
+projects. Validation uses solution membership and project-file references;
+it fails closed when those references cannot be resolved. It does not analyze
+C# source usage, DI registration contents, or runtime behavior.
 
 ## Summary
 

@@ -52,6 +52,9 @@ internal sealed class InitScaffolder
 		writer.WriteRootDockerFiles(repoRoot, projectName);
 		writer.WriteSharedKernelTemplates(repoRoot, projectName);
 		writer.WriteApiDiAggregator(repoRoot, projectName);
+		var guidance = new AgentGuidanceWriter(_fileSystem)
+			.WriteAll(repoRoot, projectName, tracker);
+		createdFiles.AddRange(guidance.CreatedFiles);
 
 		var solutionPath = Path.Combine(repoRoot, $"{projectName}.sln");
 
@@ -69,6 +72,7 @@ internal sealed class InitScaffolder
 			RepoRoot: repoRoot,
 			CreatedProjects: createdProjects,
 			CreatedFiles: createdFiles,
+			SkippedFiles: guidance.SkippedFiles,
 			DryRun: tracker.IsDryRun,
 			Operations: tracker.IsDryRun ? tracker.GetOperations() : null);
 	}
