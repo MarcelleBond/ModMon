@@ -9,27 +9,29 @@ internal sealed class ProjectInfoProvider
 		_fileSystem = fileSystem;
 	}
 
-	public ProjectInfo? GetProjectInfo(string startDirectory)
+	public ProjectInfoLookup GetProjectInfo(string startDirectory)
 	{
-		var solutionLocator = new SolutionLocator();
-		var solutionInfo = solutionLocator.TryGetSolutionInfo(startDirectory);
-
-		if (solutionInfo == null)
+		var lookup = new SolutionLocator().GetSolutionInfo(startDirectory);
+		if (lookup.Info == null)
 		{
-			return null;
+			return new ProjectInfoLookup(null, lookup.Error);
 		}
 
 		var modules = ScanForModules(
-			solutionInfo.RepoRoot,
-			solutionInfo.ProjectName);
-		var projects = ScanForProjects(solutionInfo.RepoRoot);
+			lookup.Info.RepoRoot,
+			lookup.Info.ProjectName);
+		var projects = ScanForProjects(lookup.Info.RepoRoot);
 
-		return new ProjectInfo(
-			solutionInfo.ProjectName,
-			Path.Combine(solutionInfo.RepoRoot, $"{solutionInfo.ProjectName}.sln"),
-			solutionInfo.RepoRoot,
-			modules,
-			projects);
+		return new ProjectInfoLookup(
+			new ProjectInfo(
+				lookup.Info.ProjectName,
+				Path.Combine(
+					lookup.Info.RepoRoot,
+					$"{lookup.Info.ProjectName}.sln"),
+				lookup.Info.RepoRoot,
+				modules,
+				projects),
+			null);
 	}
 
 	private List<ModuleInfo> ScanForModules(
@@ -48,7 +50,14 @@ internal sealed class ProjectInfoProvider
 			}
 
 			if (dirName == $"{projectName}.Api" ||
-				dirName == $"{projectName}.SharedKernel")
+				dirName == $"{projectName}.SharedKernel" ||
+				dirName.EndsWith(".Tests", StringComparison.Ordinal))
+			{
+				continue;
+			}
+
+			if (!_fileSystem.FileExists(
+				Path.Combine(dir, $"{dirName}.csproj")))
 			{
 				continue;
 			}
@@ -66,7 +75,9 @@ internal sealed class ProjectInfoProvider
 				hasMigrations));
 		}
 
-		return modules;
+		return modules
+			.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase)
+			.ToList();
 	}
 
 	private List<string> ScanForProjects(string repoRoot)
@@ -79,11 +90,23 @@ internal sealed class ProjectInfoProvider
 
 		foreach (var csproj in csprojFiles)
 		{
+			if (csproj.Contains(
+				$"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
+				StringComparison.OrdinalIgnoreCase) ||
+				csproj.Contains(
+				$"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}",
+				StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+
 			var projectName = Path.GetFileNameWithoutExtension(csproj);
 			projects.Add(projectName);
 		}
 
-		return projects;
+		return projects
+			.OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+			.ToList();
 	}
 }
 
@@ -93,3 +116,7 @@ internal record ProjectInfo(
 	string RepoRoot,
 	List<ModuleInfo> Modules,
 	List<string> Projects);
+
+internal record ProjectInfoLookup(
+	ProjectInfo? Info,
+	string? Error);

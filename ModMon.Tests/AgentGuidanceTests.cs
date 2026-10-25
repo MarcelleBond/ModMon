@@ -66,7 +66,7 @@ public sealed class AgentGuidanceTests
 				new PhysicalFileSystemWriter());
 			var result = writer.WriteAll(root, "Demo", tracker);
 
-			Assert.Empty(result.CreatedFiles);
+			Assert.Equal(4, result.CreatedFiles.Count);
 			Assert.Equal(4, tracker.GetOperations().Count);
 			Assert.False(File.Exists(Path.Combine(root, "AGENTS.md")));
 		}

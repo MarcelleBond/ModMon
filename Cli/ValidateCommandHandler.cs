@@ -67,7 +67,7 @@ internal sealed class ValidateCommandHandler
 			.Select(check => check.Message!)
 			.ToList();
 		return new ValidateResult(
-			Success: true,
+			Success: allPassed,
 			Message: GetValidationMessage(allPassed),
 			ExitCode: allPassed
 				? ExitCode.Success

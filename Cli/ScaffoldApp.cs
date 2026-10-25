@@ -23,65 +23,86 @@ internal sealed class ModMonApp
 	{
 		if (args.Length == 0)
 		{
-			PrintHelp();
+			PrintHelp(_console);
 			return 1;
 		}
 
 		var globalOptions = ParseGlobalOptions(args, out var remainingArgs);
 		var output = CreateOutputWriter(globalOptions);
+		var logger = CreateLogger(globalOptions);
+		var console = CreateProgressConsole(globalOptions);
+		var dotnet = ReferenceEquals(console, _console)
+			? _dotnet
+			: new DotnetCliRunner(console);
 
 		var command = remainingArgs.Length > 0
 			? remainingArgs[0].ToLowerInvariant()
 			: string.Empty;
 		var remainder = remainingArgs.Skip(1).ToArray();
+		logger.LogInfo($"command: {(command.Length == 0 ? "<none>" : command)}");
 
-		int exitCode = command switch
+		int exitCode;
+		try
 		{
-			"init" => await RunInitAsync(remainder, output),
-			"module" => await RunModuleAsync(remainder, output),
-			"info" => RunInfo(remainder, output),
-			"validate" => await RunValidateAsync(remainder, output),
-			"--help" or "-h" => PrintHelpAndReturnSuccess(),
-			_ => PrintUnknownAndReturnFailure(command)
-		};
+			exitCode = command switch
+			{
+				"init" => await RunInitAsync(
+					remainder, output, console, dotnet, logger),
+				"module" => await RunModuleAsync(
+					remainder, output, console, dotnet, logger),
+				"info" => RunInfo(remainder, output),
+				"validate" => await RunValidateAsync(remainder, output),
+				"--help" or "-h" => PrintHelpAndReturnSuccess(),
+				_ => PrintUnknownAndReturnFailure(command, console)
+			};
+		}
+		catch (Exception exception)
+		{
+			logger.LogError($"unhandled exception: {exception}");
+			output.WriteError($"Unexpected error: {exception.Message}");
+			output.Flush();
+			return (int)ExitCode.GeneralFailure;
+		}
 
+		logger.LogInfo($"exit code: {exitCode}");
 		output.Flush();
 		return exitCode;
 	}
 
 	private int PrintHelpAndReturnSuccess()
 	{
-		PrintHelp();
+		PrintHelp(_console);
 		return 0;
 	}
 
-	private int PrintUnknownAndReturnFailure(string command)
+	private int PrintUnknownAndReturnFailure(string command, IConsole console)
 	{
-		_console.WriteError($"Unknown command: {command}");
-		PrintHelp();
+		console.WriteError($"Unknown command: {command}");
+		PrintHelp(console);
 		return 1;
 	}
 
-	private void PrintHelp()
+	private void PrintHelp(IConsole console)
 	{
-		_console.WriteLine("Usage:");
-		_console.WriteLine(
+		console.WriteLine("Usage:");
+		console.WriteLine(
 			"  modmon init --name <ProjectName> [--output <Path>] " +
 			"[--format json] [--dry-run]");
-		_console.WriteLine(
+		console.WriteLine(
 			"  modmon module add --name <ModuleName> [--output <Path>] " +
 			"[--format json] [--dry-run]");
-		_console.WriteLine(
+		console.WriteLine(
 			"  modmon info [--path <Path>] [--format json]");
-		_console.WriteLine(
+		console.WriteLine(
 			"  modmon validate [--path <Path>] [--format json]");
-		_console.WriteLine(
+		console.WriteLine(
 			"  modmon module list [--path <Path>] [--format json]");
-		_console.WriteLine(string.Empty);
-		_console.WriteLine("Global Options:");
-		_console.WriteLine("  --format <human|json>  Output format (default: human)");
-		_console.WriteLine("  --verbose              Enable verbose logging");
-		_console.WriteLine("  --log-file <path>      Write logs to file");
+		console.WriteLine(string.Empty);
+		console.WriteLine("Global Options:");
+		console.WriteLine(
+			"  --format <human|json>  Output format (default: human)");
+		console.WriteLine("  --verbose              Enable verbose logging");
+		console.WriteLine("  --log-file <path>      Write logs to file");
 	}
 
 	private GlobalOptions ParseGlobalOptions(
@@ -128,6 +149,13 @@ internal sealed class ModMonApp
 			: new HumanOutputWriter(_console);
 	}
 
+	private IConsole CreateProgressConsole(GlobalOptions options)
+	{
+		return options.Format == OutputFormat.Json
+			? new StderrConsole(_console)
+			: _console;
+	}
+
 	private ILogger CreateLogger(GlobalOptions options)
 	{
 		var loggers = new List<ILogger>();
@@ -150,7 +178,12 @@ internal sealed class ModMonApp
 		};
 	}
 
-	private async Task<int> RunInitAsync(string[] args, IOutputWriter output)
+	private async Task<int> RunInitAsync(
+		string[] args,
+		IOutputWriter output,
+		IConsole console,
+		IDotnetCliRunner dotnet,
+		ILogger logger)
 	{
 		var options = InitOptions.Parse(args);
 		if (!options.IsValid)
@@ -166,14 +199,20 @@ internal sealed class ModMonApp
 		}
 
 		var handler = new InitCommandHandler(
-			_console,
-			_dotnet,
+			console,
+			dotnet,
 			_fileSystem,
-			output);
+			output,
+			logger);
 		return await handler.HandleAsync(options);
 	}
 
-	private async Task<int> RunModuleAsync(string[] args, IOutputWriter output)
+	private async Task<int> RunModuleAsync(
+		string[] args,
+		IOutputWriter output,
+		IConsole console,
+		IDotnetCliRunner dotnet,
+		ILogger logger)
 	{
 		if (args.Length == 0)
 		{
@@ -187,7 +226,7 @@ internal sealed class ModMonApp
 					"Missing module subcommand. Use 'module add' or 'module list'"
 				});
 			output.WriteError(errorResult.Message, errorResult);
-			PrintHelp();
+			PrintHelp(console);
 			return (int)ExitCode.InvalidArguments;
 		}
 
@@ -228,21 +267,55 @@ internal sealed class ModMonApp
 		}
 		var startDirectory = string.IsNullOrWhiteSpace(options.OutputPath)
 			? Directory.GetCurrentDirectory()
-			: Path.GetFullPath(options.OutputPath);
-		var solutionInfo = _solutionLocator.TryGetSolutionInfo(startDirectory);
-		if (solutionInfo == null)
+			: PathResolver.TryGetFullPath(options.OutputPath);
+		if (startDirectory == null)
 		{
-			var errorResult = new ModuleAddResult(
+			var invalid = new ModuleAddResult(
 				Success: false,
-				Message: "Unable to infer project name from solution file",
-				ExitCode: ExitCode.ResourceNotFound,
+				Message: $"Invalid --output path '{options.OutputPath}'.",
+				ExitCode: ExitCode.InvalidArguments,
 				Timestamp: DateTime.UtcNow,
 				Errors: new List<string>
 				{
-					"Unable to infer project name from a single *.sln in repo root."
+					$"Invalid --output path '{options.OutputPath}'."
 				});
+			output.WriteError(invalid.Message, invalid);
+			return (int)invalid.ExitCode;
+		}
+
+		var lookup = _solutionLocator.GetSolutionInfo(startDirectory);
+		if (lookup.Info == null)
+		{
+			var message = lookup.Error
+				?? "Unable to infer project name from a single *.sln in repo root.";
+			var exitCode = lookup.Error != null
+				? ExitCode.ValidationFailed
+				: ExitCode.ResourceNotFound;
+			var errorResult = new ModuleAddResult(
+				Success: false,
+				Message: message,
+				ExitCode: exitCode,
+				Timestamp: DateTime.UtcNow,
+				Errors: new List<string> { message });
 			output.WriteError(errorResult.Message, errorResult);
-			return (int)ExitCode.ResourceNotFound;
+			return (int)exitCode;
+		}
+
+		if (!NameValidator.IsValid(lookup.Info.ProjectName))
+		{
+			var nameError = new ModuleAddResult(
+				Success: false,
+				Message: $"Solution name '{lookup.Info.ProjectName}' " +
+					"is not a valid project name.",
+				ExitCode: ExitCode.InvalidArguments,
+				Timestamp: DateTime.UtcNow,
+				Errors: new List<string>
+				{
+					$"Solution name '{lookup.Info.ProjectName}' is not a " +
+					"valid project name. Rename the .sln or run init."
+				});
+			output.WriteError(nameError.Message, nameError);
+			return (int)nameError.ExitCode;
 		}
 
 		IDryRunTracker tracker = options.DryRun
@@ -250,15 +323,16 @@ internal sealed class ModMonApp
 			: new NullDryRunTracker();
 
 		var handler = new ModuleAddCommandHandler(
-			_console,
-			_dotnet,
+			console,
+			dotnet,
 			_fileSystem,
-			output);
+			output,
+			logger);
 
 		return await handler.HandleAsync(
 			new ModuleAddRequest(
-				solutionInfo.RepoRoot,
-				solutionInfo.ProjectName,
+				lookup.Info.RepoRoot,
+				lookup.Info.ProjectName,
 				options.ModuleName),
 			tracker);
 	}

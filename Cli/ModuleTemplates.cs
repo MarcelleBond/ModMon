@@ -47,7 +47,7 @@ internal static class ModuleTemplates
 
 		fileSystem.WriteFile(
 			Path.Combine(moduleRoot, "Database", "Scripts", "Versioned", "001_init.sql"),
-			"-- TODO: module versioned scripts (run once, in order)\n",
+			ModuleInitScript(moduleName),
 			overwrite: true);
 
 		fileSystem.WriteFile(
@@ -61,6 +61,16 @@ internal static class ModuleTemplates
 			overwrite: true);
 	}
 
+	private static string ModuleInitScript(string moduleName)
+	{
+		return $$"""
+-- Module schema — must exist before DbUp creates its journal table.
+CREATE SCHEMA IF NOT EXISTS {{moduleName.ToLowerInvariant()}};
+
+-- TODO: module versioned scripts (run once, in order)
+""";
+	}
+
 	private static string DbUpMigrator(string projectName, string moduleName)
 	{
 		return $$"""
@@ -71,6 +81,7 @@ using System.Reflection;
 using DbUp;
 using DbUp.Engine;
 using Microsoft.Extensions.Configuration;
+using Npgsql;
 
 namespace {{projectName}}.{{moduleName}}.Database.Scripts;
 
@@ -81,6 +92,7 @@ public static class DbUpMigrator
 		string? _ = null)
 	{
 		var connectionString = GetConnectionString(configuration);
+		EnsureSchemaExists(connectionString);
 		var upgrader = BuildUpgrader(connectionString);
 		var result = upgrader.PerformUpgrade();
 		return result.Successful ? 0 : 1;
@@ -90,6 +102,16 @@ public static class DbUpMigrator
 	{
 		var conn = configuration.GetConnectionString("{{ConnectionStringName}}");
 		return conn ?? string.Empty;
+	}
+
+	private static void EnsureSchemaExists(string connectionString)
+	{
+		using var connection = new NpgsqlConnection(connectionString);
+		connection.Open();
+		using var command = connection.CreateCommand();
+		command.CommandText =
+			"CREATE SCHEMA IF NOT EXISTS \"{{moduleName.ToLowerInvariant()}}\";";
+		command.ExecuteNonQuery();
 	}
 
 	private static UpgradeEngine BuildUpgrader(

@@ -21,10 +21,21 @@ internal sealed record ModuleAddOptions(
 			);
 		}
 
+		var trimmed = name.Trim();
+		if (!NameValidator.IsValid(trimmed))
+		{
+			return new ModuleAddOptions(
+				ModuleName: string.Empty,
+				OutputPath: string.Empty,
+				DryRun: false,
+				IsValid: false,
+				ErrorMessage: NameValidator.Describe("module", name));
+		}
+
 		var output = TryGetOptionValue(args, "--output");
 		var outputPath = output?.Trim() ?? string.Empty;
 		var dryRun = args.Contains("--dry-run");
-		return new ModuleAddOptions(name.Trim(), outputPath, dryRun, true, string.Empty);
+		return new ModuleAddOptions(trimmed, outputPath, dryRun, true, string.Empty);
 	}
 
 	private static string? TryGetOptionValue(string[] args, string key)

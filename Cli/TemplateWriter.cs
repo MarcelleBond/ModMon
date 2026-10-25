@@ -40,16 +40,21 @@ internal sealed class TemplateWriter
 			Path.Combine(repoRoot, "docker-compose.yml"),
 			Templates.DockerCompose(projectName),
 			overwrite: Overwrite);
+
+		_fileSystem.WriteFile(
+			Path.Combine(repoRoot, ".dockerignore"),
+			Templates.DockerIgnore(),
+			overwrite: Overwrite);
 	}
 
-	public void UpdateRootDockerFiles(
+	public bool UpdateRootDockerFiles(
 		string repoRoot,
 		string projectName,
 		string moduleName)
 	{
 		var dockerfile = Path.Combine(repoRoot, "Dockerfile");
 		var updater = new DockerfileModulesUpdater(_fileSystem);
-		updater.AddModuleProject(dockerfile, projectName, moduleName);
+		return updater.AddModuleProject(dockerfile, projectName, moduleName);
 	}
 
 	public void WriteSharedKernelTemplates(string repoRoot, string projectName)
@@ -81,7 +86,7 @@ internal sealed class TemplateWriter
 		ModuleTemplates.WriteAll(_fileSystem, moduleRoot, projectName, moduleName);
 	}
 
-	public void UpdateApiDiAggregator(
+	public bool UpdateApiDiAggregator(
 		string repoRoot,
 		string projectName,
 		string moduleName)
@@ -93,6 +98,6 @@ internal sealed class TemplateWriter
 			"DependencyInjection.cs");
 
 		var updater = new ApiDiAggregatorUpdater(_fileSystem);
-		updater.AddModule(path, projectName, moduleName);
+		return updater.AddModule(path, projectName, moduleName);
 	}
 }

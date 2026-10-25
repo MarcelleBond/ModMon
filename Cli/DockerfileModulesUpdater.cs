@@ -11,17 +11,17 @@ internal sealed class DockerfileModulesUpdater
 		_fileSystem = fileSystem;
 	}
 
-	public void AddModuleProject(
+	public bool AddModuleProject(
 		string dockerfilePath,
 		string projectName,
 		string moduleName)
 	{
 		if (!_fileSystem.FileExists(dockerfilePath))
 		{
-			return;
+			return false;
 		}
 
-		var content = File.ReadAllText(dockerfilePath);
+		var content = _fileSystem.ReadFile(dockerfilePath);
 		var newLine = content.Contains("\r\n", StringComparison.Ordinal)
 			? "\r\n"
 			: "\n";
@@ -31,18 +31,19 @@ internal sealed class DockerfileModulesUpdater
 			$"COPY [\"{moduleProject}/{moduleProject}.csproj\", \"{moduleProject}/\"]";
 		if (content.Contains(copyLine, StringComparison.Ordinal))
 		{
-			return;
+			return true;
 		}
 
 		var start = content.IndexOf(MarkerStart, StringComparison.Ordinal);
 		var end = content.IndexOf(MarkerEnd, StringComparison.Ordinal);
 		if (start < 0 || end < 0 || end <= start)
 		{
-			return;
+			return false;
 		}
 
 		var insertionPoint = start + MarkerStart.Length;
 		var updated = content.Insert(insertionPoint, newLine + copyLine);
 		_fileSystem.WriteFile(dockerfilePath, updated, overwrite: true);
+		return true;
 	}
 }

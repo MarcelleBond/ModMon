@@ -17,25 +17,40 @@ internal sealed class ModuleListCommandHandler
 	{
 		var startDirectory = string.IsNullOrWhiteSpace(path)
 			? Directory.GetCurrentDirectory()
-			: Path.GetFullPath(path);
+			: PathResolver.TryGetFullPath(path);
+		if (startDirectory == null)
+		{
+			var invalid = new ModuleListResult(
+				Success: false,
+				Message: $"Invalid --path '{path}'.",
+				ExitCode: ExitCode.InvalidArguments,
+				Timestamp: DateTime.UtcNow,
+				Errors: new List<string> { $"Invalid --path '{path}'." });
+			_output.WriteError(invalid.Message, invalid);
+			return (int)invalid.ExitCode;
+		}
 
 		var provider = new ProjectInfoProvider(_fileSystem);
-		var projectInfo = provider.GetProjectInfo(startDirectory);
+		var lookup = provider.GetProjectInfo(startDirectory);
 
-		if (projectInfo == null)
+		if (lookup.Info == null)
 		{
+			var message = lookup.Error
+				?? "Unable to find a .sln file in the directory tree";
+			var exitCode = lookup.Error != null
+				? ExitCode.ValidationFailed
+				: ExitCode.ResourceNotFound;
 			var errorResult = new ModuleListResult(
 				Success: false,
-				Message: "No project found",
-				ExitCode: ExitCode.ResourceNotFound,
+				Message: message,
+				ExitCode: exitCode,
 				Timestamp: DateTime.UtcNow,
-				Errors: new List<string>
-				{
-					"Unable to find a .sln file in the directory tree"
-				});
+				Errors: new List<string> { message });
 			_output.WriteError(errorResult.Message, errorResult);
-			return (int)ExitCode.ResourceNotFound;
+			return (int)exitCode;
 		}
+
+		var projectInfo = lookup.Info;
 
 		var result = new ModuleListResult(
 			Success: true,

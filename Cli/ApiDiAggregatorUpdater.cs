@@ -13,14 +13,17 @@ internal sealed class ApiDiAggregatorUpdater
 		_fileSystem = fileSystem;
 	}
 
-	public void AddModule(string filePath, string projectName, string moduleName)
+	public bool AddModule(
+		string filePath,
+		string projectName,
+		string moduleName)
 	{
 		if (!_fileSystem.FileExists(filePath))
 		{
-			return;
+			return false;
 		}
 
-		var content = File.ReadAllText(filePath);
+		var content = _fileSystem.ReadFile(filePath);
 		var newLine = content.Contains("\r\n", StringComparison.Ordinal)
 			? "\r\n"
 			: "\n";
@@ -31,7 +34,7 @@ internal sealed class ApiDiAggregatorUpdater
 		var end = content.IndexOf(MarkerEnd, StringComparison.Ordinal);
 		if (start < 0 || end < 0 || end <= start)
 		{
-			return;
+			return false;
 		}
 
 		var insertionPoint = start + MarkerStart.Length;
@@ -41,7 +44,7 @@ internal sealed class ApiDiAggregatorUpdater
 			$"services.Add{moduleName}DI(configuration);",
 			StringComparison.Ordinal))
 		{
-			return;
+			return true;
 		}
 
 		var updated = content.Insert(insertionPoint, toInsert);
@@ -51,6 +54,7 @@ internal sealed class ApiDiAggregatorUpdater
 			moduleName,
 			newLine);
 		_fileSystem.WriteFile(filePath, updated, overwrite: true);
+		return true;
 	}
 
 	private static string AddDbUpIfMissing(

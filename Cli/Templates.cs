@@ -162,13 +162,12 @@ RUN dotnet publish "{{projectName}}.Api.csproj" \
     -c Release \
     -o /app/publish \
     -a $TARGETARCH \
-    --no-restore \
     /p:UseAppHost=false \
     /p:PublishReadyToRun=true
 
 # RUNTIME STAGE (Using Chiseled for Security & Size)
 # No shell, no apt, no root. Perfect for k3s.
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-chiseled AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS final
 WORKDIR /app
 COPY --from=build /app/publish .
 
@@ -189,18 +188,48 @@ ENTRYPOINT ["dotnet", "{{projectName}}.Api.dll"]
 """;
 	}
 
+	public static string DockerIgnore()
+	{
+		return """
+# Build outputs — never let host bin/obj shadow in-container restore
+**/bin/
+**/obj/
+**/out/
+
+# VCS / IDE
+.git/
+.gitignore
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Test artifacts
+**/TestResults/
+*.trx
+
+# Local tooling
+*.log
+.dockerignore
+""";
+	}
+
 	public static string DockerCompose(string projectName)
 	{
+		var dockerName = projectName.ToLowerInvariant();
 		return $$"""
 services:
   api:
-    image: {{projectName}}-api:dev
-    container_name: {{projectName}}-api
+    image: {{dockerName}}-api:dev
+    container_name: {{dockerName}}-api
     build:
       context: .
       dockerfile: Dockerfile
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    restart: unless-stopped
     environment:
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database={{projectName}};Username={{projectName}};Password={{projectName}}-dev
@@ -209,19 +238,24 @@ services:
 
   db:
     image: postgres:16
-    container_name: {{projectName}}-db
+    container_name: {{dockerName}}-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: {{projectName}}
       POSTGRES_USER: {{projectName}}
       POSTGRES_PASSWORD: {{projectName}}-dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{projectName}} -d {{projectName}}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     ports:
       - "5432:5432"
     volumes:
-      - {{projectName}}_pgdata:/var/lib/postgresql/data
+      - {{dockerName}}_pgdata:/var/lib/postgresql/data
 
 volumes:
-  {{projectName}}_pgdata:
+  {{dockerName}}_pgdata:
 """;
 	}
 }

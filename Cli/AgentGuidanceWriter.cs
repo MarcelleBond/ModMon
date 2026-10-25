@@ -53,13 +53,13 @@ internal sealed class AgentGuidanceWriter
 				["path"] = file.Path,
 				["dryRun"] = tracker.IsDryRun
 			});
+		if (!exists)
+		{
+			created.Add(file.Path);
+		}
 		if (!tracker.IsDryRun)
 		{
 			_fileSystem.WriteFile(file.Path, file.Content, Overwrite);
-			if (!exists)
-			{
-				created.Add(file.Path);
-			}
 		}
 	}
 

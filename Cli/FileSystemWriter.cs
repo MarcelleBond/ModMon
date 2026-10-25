@@ -23,6 +23,22 @@ internal sealed class FileSystemWriter : IFileSystemWriter
 		File.WriteAllText(path, content);
 	}
 
+	public void DeleteFile(string path)
+	{
+		if (File.Exists(path))
+		{
+			File.Delete(path);
+		}
+	}
+
+	public void DeleteDirectory(string path)
+	{
+		if (Directory.Exists(path))
+		{
+			Directory.Delete(path, recursive: true);
+		}
+	}
+
 	public bool FileExists(string path)
 	{
 		return File.Exists(path);

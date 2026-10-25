@@ -4,11 +4,16 @@ internal sealed class DotnetModuleSteps
 {
 	private readonly IDotnetCliRunner _dotnet;
 	private readonly IConsole _console;
+	private readonly IFileSystemWriter _fileSystem;
 
-	public DotnetModuleSteps(IDotnetCliRunner dotnet, IConsole console)
+	public DotnetModuleSteps(
+		IDotnetCliRunner dotnet,
+		IConsole console,
+		IFileSystemWriter fileSystem)
 	{
 		_dotnet = dotnet;
 		_console = console;
+		_fileSystem = fileSystem;
 	}
 
 	public async Task<int> RunAsync(
@@ -42,18 +47,23 @@ internal sealed class DotnetModuleSteps
 			}
 		}
 
-		var class1 = Path.Combine(repoRoot, moduleProject, "Class1.cs");
-		if (File.Exists(class1))
-		{
-			File.Delete(class1);
-		}
+		DeleteIfExists(
+			Path.Combine(repoRoot, moduleProject, "Class1.cs"));
 
 		EnsureDbUpScriptsEmbedded(repoRoot, moduleProject);
 
 		return 0;
 	}
 
-	private static void EnsureDbUpScriptsEmbedded(
+	private void DeleteIfExists(string path)
+	{
+		if (_fileSystem.FileExists(path))
+		{
+			_fileSystem.DeleteFile(path);
+		}
+	}
+
+	private void EnsureDbUpScriptsEmbedded(
 		string repoRoot,
 		string moduleProject)
 	{
@@ -61,12 +71,12 @@ internal sealed class DotnetModuleSteps
 			repoRoot,
 			moduleProject,
 			$"{moduleProject}.csproj");
-		if (!File.Exists(csprojPath))
+		if (!_fileSystem.FileExists(csprojPath))
 		{
 			return;
 		}
 
-		var content = File.ReadAllText(csprojPath);
+		var content = _fileSystem.ReadFile(csprojPath);
 		if (content.Contains("Database\\Scripts\\**\\*.sql"))
 		{
 			return;
@@ -93,6 +103,6 @@ internal sealed class DotnetModuleSteps
 			string.Empty);
 
 		var updated = content.Insert(index, itemGroup + newLine);
-		File.WriteAllText(csprojPath, updated);
+		_fileSystem.WriteFile(csprojPath, updated, overwrite: true);
 	}
 }

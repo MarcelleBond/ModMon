@@ -25,8 +25,11 @@ internal sealed class EfMigrationSteps
 
 		var apiProject = $"{projectName}.Api";
 		var apiProjectFile = $"{apiProject}/{apiProject}.csproj";
+		var addDesignCommand =
+			$"add {apiProjectFile} package Microsoft.EntityFrameworkCore.Design";
+		_console.WriteLine($"> dotnet {addDesignCommand}");
 		var addDesignExit = await _dotnet.RunAsync(
-			$"add {apiProjectFile} package Microsoft.EntityFrameworkCore.Design",
+			addDesignCommand,
 			repoRoot);
 		if (addDesignExit != 0)
 		{

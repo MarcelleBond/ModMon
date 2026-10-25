@@ -25,6 +25,20 @@ internal sealed class DotnetCliRunner : IDotnetCliRunner
 		};
 
 		using var process = new Process { StartInfo = startInfo };
+		try
+		{
+			return await RunProcessAsync(process);
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException)
+		{
+			_console.WriteError(
+				$"Failed to run 'dotnet {arguments}': {ex.Message}");
+			return 1;
+		}
+	}
+
+	private async Task<int> RunProcessAsync(Process process)
+	{
 		process.OutputDataReceived += (_, e) =>
 		{
 			if (!string.IsNullOrWhiteSpace(e.Data))

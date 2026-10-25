@@ -23,10 +23,55 @@ internal sealed class InitScaffolder
 	{
 		var apiProject = $"{projectName}.Api";
 		var kernelProject = $"{projectName}.SharedKernel";
-		var createdProjects = new List<string>();
-		var createdFiles = new List<string>();
+		var artifacts = new[]
+		{
+			Path.Combine(repoRoot, $"{projectName}.sln"),
+			Path.Combine(repoRoot, apiProject),
+			Path.Combine(repoRoot, kernelProject),
+			Path.Combine(repoRoot, "Dockerfile"),
+			Path.Combine(repoRoot, "docker-compose.yml"),
+			Path.Combine(repoRoot, ".dockerignore"),
+			Path.Combine(repoRoot, "AGENTS.md"),
+			Path.Combine(repoRoot, ".agent", "modmon")
+		};
+		var preExisting = artifacts.Where(PathExists).ToList();
 
-		var steps = new DotnetInitSteps(_dotnet, _console);
+		try
+		{
+			return await RunPipelineAsync(
+				repoRoot,
+				projectName,
+				tracker,
+				artifacts,
+				preExisting);
+		}
+		catch (Exception exception)
+		{
+			_console.WriteError($"Scaffolding failed: {exception.Message}");
+			CleanupArtifacts(artifacts, preExisting);
+			return new InitResult(
+				Success: false,
+				Message: "Failed to initialize project",
+				ExitCode: ExitCode.GeneralFailure,
+				Timestamp: DateTime.UtcNow,
+				ProjectName: projectName,
+				RepoRoot: repoRoot,
+				Errors: new List<string> { exception.Message });
+		}
+	}
+
+	private async Task<InitResult> RunPipelineAsync(
+		string repoRoot,
+		string projectName,
+		IDryRunTracker tracker,
+		string[] artifacts,
+		List<string> preExisting)
+	{
+		var apiProject = $"{projectName}.Api";
+		var kernelProject = $"{projectName}.SharedKernel";
+		var writes = new TrackingFileSystemWriter(_fileSystem);
+
+		var steps = new DotnetInitSteps(_dotnet, _console, writes);
 		var result = await steps.RunAsync(
 			repoRoot,
 			projectName,
@@ -34,6 +79,7 @@ internal sealed class InitScaffolder
 			kernelProject);
 		if (result != 0)
 		{
+			CleanupArtifacts(artifacts, preExisting);
 			return new InitResult(
 				Success: false,
 				Message: "Failed to initialize project structure",
@@ -44,18 +90,19 @@ internal sealed class InitScaffolder
 				Errors: new List<string> { "dotnet CLI commands failed" });
 		}
 
-		createdProjects.Add(apiProject);
-		createdProjects.Add(kernelProject);
-
-		var writer = new TemplateWriter(_fileSystem);
+		var writer = new TemplateWriter(writes);
 		writer.WriteApiBaseline(repoRoot, projectName);
 		writer.WriteRootDockerFiles(repoRoot, projectName);
 		writer.WriteSharedKernelTemplates(repoRoot, projectName);
 		writer.WriteApiDiAggregator(repoRoot, projectName);
-		var guidance = new AgentGuidanceWriter(_fileSystem)
+		var guidance = new AgentGuidanceWriter(writes)
 			.WriteAll(repoRoot, projectName, tracker);
-		createdFiles.AddRange(guidance.CreatedFiles);
 
+		var createdFiles = writes.Created
+			.Concat(guidance.CreatedFiles)
+			.Distinct()
+			.ToList();
+		var createdProjects = new List<string> { apiProject, kernelProject };
 		var solutionPath = Path.Combine(repoRoot, $"{projectName}.sln");
 
 		var message = tracker.IsDryRun
@@ -72,8 +119,45 @@ internal sealed class InitScaffolder
 			RepoRoot: repoRoot,
 			CreatedProjects: createdProjects,
 			CreatedFiles: createdFiles,
+			UpdatedFiles: writes.Updated,
 			SkippedFiles: guidance.SkippedFiles,
 			DryRun: tracker.IsDryRun,
 			Operations: tracker.IsDryRun ? tracker.GetOperations() : null);
+	}
+
+	private bool PathExists(string path)
+	{
+		return _fileSystem.FileExists(path)
+			|| _fileSystem.DirectoryExists(path);
+	}
+
+	private void CleanupArtifacts(
+		string[] artifacts,
+		List<string> preExisting)
+	{
+		foreach (var path in artifacts.Except(preExisting))
+		{
+			TryDeletePath(path);
+		}
+	}
+
+	private void TryDeletePath(string path)
+	{
+		try
+		{
+			if (_fileSystem.DirectoryExists(path))
+			{
+				_fileSystem.DeleteDirectory(path);
+			}
+			else
+			{
+				_fileSystem.DeleteFile(path);
+			}
+		}
+		catch (Exception ex)
+		{
+			_console.WriteError(
+				$"Cleanup: unable to remove '{path}': {ex.Message}");
+		}
 	}
 }

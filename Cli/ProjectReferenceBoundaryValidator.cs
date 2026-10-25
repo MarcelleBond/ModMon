@@ -97,6 +97,7 @@ internal sealed class ProjectReferenceBoundaryValidator
 					ValidationRuleIds.ProjectReference,
 					source.Path,
 					$"Duplicate project reference: {targetPath}");
+				continue;
 			}
 
 			ValidateTarget(source, targetPath, projectMap, findings, graph);
@@ -228,7 +229,8 @@ internal sealed class ProjectReferenceBoundaryValidator
 			findings.Add(new ValidationCheck(
 				BoundaryCheck,
 				true,
-				"Project reference boundaries are valid"));
+				"Project reference boundaries are valid",
+				ValidationRuleIds.ProjectBoundary));
 		}
 	}
 

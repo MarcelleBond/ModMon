@@ -15,12 +15,14 @@ internal sealed class JsonOutputWriter : IOutputWriter
 
 	public void WriteError(string message, object? details = null)
 	{
-		_result = new
-		{
-			success = false,
-			message,
-			details
-		};
+		_result = details is CommandResult
+			? details
+			: new
+			{
+				success = false,
+				message,
+				details
+			};
 	}
 
 	public void WriteProgress(string message)

@@ -4,11 +4,16 @@ internal sealed class DotnetInitSteps
 {
 	private readonly IDotnetCliRunner _dotnet;
 	private readonly IConsole _console;
+	private readonly IFileSystemWriter _fileSystem;
 
-	public DotnetInitSteps(IDotnetCliRunner dotnet, IConsole console)
+	public DotnetInitSteps(
+		IDotnetCliRunner dotnet,
+		IConsole console,
+		IFileSystemWriter fileSystem)
 	{
 		_dotnet = dotnet;
 		_console = console;
+		_fileSystem = fileSystem;
 	}
 
 	public async Task<int> RunAsync(
@@ -41,18 +46,19 @@ internal sealed class DotnetInitSteps
 			}
 		}
 
-		var kernelClass1 = Path.Combine(repoRoot, kernelProject, "Class1.cs");
-		if (File.Exists(kernelClass1))
-		{
-			File.Delete(kernelClass1);
-		}
-
-		var apiClass1 = Path.Combine(repoRoot, apiProject, "Class1.cs");
-		if (File.Exists(apiClass1))
-		{
-			File.Delete(apiClass1);
-		}
+		DeleteIfExists(
+			Path.Combine(repoRoot, kernelProject, "Class1.cs"));
+		DeleteIfExists(
+			Path.Combine(repoRoot, apiProject, "Class1.cs"));
 
 		return 0;
+	}
+
+	private void DeleteIfExists(string path)
+	{
+		if (_fileSystem.FileExists(path))
+		{
+			_fileSystem.DeleteFile(path);
+		}
 	}
 }
