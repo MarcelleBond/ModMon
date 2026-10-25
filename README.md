@@ -11,11 +11,17 @@ A powerful CLI tool for rapidly bootstrapping .NET modular monolith applications
 - ✅ Docker multi-stage builds with chiseled runtime images
 - ✅ Structured logging with Serilog (JSON format for observability)
 - ✅ Global exception handling and model validation
+- ✅ Dry-run preview of all filesystem and `dotnet` operations
+- ✅ Machine-readable `--format json` (stdout stays pure JSON; progress goes to stderr)
+- ✅ Automatic rollback when scaffolding fails partway
+- ✅ Architecture validation of the project-reference graph
 
 ## Prerequisites
 
 - .NET SDK 10.0 or later
-- `dotnet-ef` tool (for Entity Framework migrations)
+- `dotnet-ef` tool — recommended for Entity Framework migrations during
+  `module add` (optional: without it the module is still created and a
+  warning is emitted)
   ```bash
   dotnet tool install --global dotnet-ef
   ```
@@ -85,7 +91,9 @@ This creates:
 - `MyProject.sln` - Solution file
 - `MyProject.Api` - ASP.NET Core Web API project
 - `MyProject.SharedKernel` - Shared kernel library
-- `Dockerfile` and `docker-compose.yml` - Docker configuration
+- `Dockerfile`, `docker-compose.yml`, `.dockerignore` - Docker setup
+  (Postgres with a healthcheck; the API waits for the database)
+- `AGENTS.md` + `.agent/modmon/` - AI-agent guidance files
 
 ### 2. Add a Module
 
@@ -106,7 +114,7 @@ This creates a complete module with:
 dotnet run --project MyProject.Api
 
 # Using Docker
-docker-compose up --build
+docker compose up --build
 ```
 
 ## Commands
@@ -121,12 +129,15 @@ modmon -h
 ### Initialize Project
 
 ```bash
-modmon init --name <ProjectName> [--output <Path>]
+modmon init --name <ProjectName> [--output <Path>] [--format json] [--dry-run]
 ```
 
 **Options:**
-- `--name` (required): Name of the project
+- `--name` (required): Name of the project. Letters, digits and
+  underscores; must start with a letter.
 - `--output` (optional): Target directory (defaults to current directory)
+- `--format json` (optional): Machine-readable output
+- `--dry-run` (optional): Preview all changes without writing anything
 
 `init` also generates project-specific AI guidance in `AGENTS.md` and
 `.agent/modmon/`. ModMon-owned guidance files may be regenerated; existing
@@ -141,12 +152,19 @@ modmon init --name ECommerce --output C:\Projects\MyApp
 ### Add Module
 
 ```bash
-modmon module add --name <ModuleName> [--output <Path>]
+modmon module add --name <ModuleName> [--output <Path>] [--format json] [--dry-run]
 ```
 
 **Options:**
-- `--name` (required): Name of the module
+- `--name` (required): Name of the module (same naming rules as `init`)
 - `--output` (optional): Path to search for .sln file (defaults to current directory)
+- `--format json` (optional): Machine-readable output
+- `--dry-run` (optional): Preview all changes without writing anything
+
+If the module cannot be fully wired in (e.g. the API DI aggregator or
+`Dockerfile` is missing or lacks the expected markers), the module is
+still created and the result includes warnings telling you what was
+skipped.
 
 **Example:**
 ```bash
@@ -183,7 +201,9 @@ modmon module list [--path <Path>] [--format json]
 
 ### JSON Output
 
-All commands support `--format json` for machine-readable output:
+All commands support `--format json` for machine-readable output. Stdout
+emits exactly one JSON document; progress messages and `dotnet` output
+are routed to stderr so the output is safe to pipe:
 
 ```bash
 modmon init --name MyApp --format json
@@ -193,21 +213,47 @@ modmon validate --format json
 
 ### Dry-Run Mode
 
-Preview changes without making them:
+Preview changes without making them. Nothing is written to disk and no
+`dotnet` commands run; the result lists every operation that *would*
+happen (file writes, package installs, EF migrations):
 
 ```bash
-modmon init --name MyApp --dry-run --format json
+modmon init --name MyApp --dry-run
 modmon module add --name Users --dry-run --format json
 ```
 
-### Verbose Logging
+### Verbose Logging & Log Files
 
-Enable detailed logging:
+Enable detailed logging to the console, a file, or both:
 
 ```bash
 modmon init --name MyApp --verbose
 modmon module add --name Users --verbose --log-file modmon.log
+modmon validate --log-file logs\audit.log
 ```
+
+`--log-file` creates missing parent directories and appends
+timestamped entries.
+
+### Failure Rollback
+
+If `init` or `module add` fails partway (e.g. a `dotnet` step errors or a
+template write fails), ModMon rolls back what it created: new module
+directories are removed, solution/project references are undone, and
+previously-modified files (`DependencyInjection.cs`, `Dockerfile`) are
+restored. Pre-existing files are never deleted.
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General / unexpected failure |
+| 2 | Invalid arguments (bad or missing options, invalid name) |
+| 3 | Resource already exists (solution or module) |
+| 4 | Resource not found (no solution discovered) |
+| 5 | Validation failed |
+| 6 | External tool error (`dotnet` step failed) |
 
 ## Documentation
 
@@ -255,6 +301,12 @@ MyProject/
 ├── MyProject.sln
 ├── Dockerfile
 ├── docker-compose.yml
+├── .dockerignore
+├── AGENTS.md
+├── .agent/modmon/
+│   ├── SKILL.md
+│   ├── architecture-patterns.md
+│   └── quick-reference.md
 ├── MyProject.Api/
 │   ├── Program.cs
 │   ├── appsettings.json
@@ -273,9 +325,13 @@ MyProject/
     ├── Controllers/
     ├── Database/
     │   ├── OrdersDbContext.cs
+    │   ├── OrdersDbContextFactory.cs
     │   ├── Entities/
     │   ├── Migrations/
     │   └── Scripts/
+    │       ├── DbUpMigrator.cs
+    │       ├── Versioned/001_init.sql
+    │       └── Repeatable/R__views.sql
     ├── Exceptions/
     ├── Extensions/
     ├── Interfaces/
