@@ -18,9 +18,13 @@ public sealed class StepTests
 			_root, "Demo", "Demo.Api", "Demo.SharedKernel");
 
 		Assert.Equal(0, exit);
-		Assert.Equal(10, runner.Commands.Count);
+		Assert.Equal(12, runner.Commands.Count);
 		Assert.Equal("new sln -n Demo", runner.Commands[0]);
 		Assert.Equal("new webapi -n Demo.Api", runner.Commands[1]);
+		Assert.Contains(
+			runner.Commands,
+			c => c == "add Demo.Api/Demo.Api.csproj " +
+				"package Microsoft.EntityFrameworkCore");
 		Assert.Contains(
 			runner.Commands,
 			c => c == "add Demo.Api/Demo.Api.csproj " +

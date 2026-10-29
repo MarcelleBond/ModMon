@@ -32,6 +32,8 @@ internal sealed class DotnetInitSteps
 			$"add {apiProject}/{apiProject}.csproj reference {kernelProject}/{kernelProject}.csproj",
 			$"add {apiProject}/{apiProject}.csproj package Swashbuckle.AspNetCore",
 			$"add {apiProject}/{apiProject}.csproj package Serilog.AspNetCore",
+			$"add {apiProject}/{apiProject}.csproj package Microsoft.EntityFrameworkCore",
+			$"add {apiProject}/{apiProject}.csproj package Microsoft.EntityFrameworkCore.Relational",
 			$"add {kernelProject}/{kernelProject}.csproj package Serilog.AspNetCore",
 			$"add {kernelProject}/{kernelProject}.csproj package Newtonsoft.Json"
 		};

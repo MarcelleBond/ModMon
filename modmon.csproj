@@ -15,7 +15,7 @@
     
     <!-- Package Metadata -->
     <PackageId>ModMon</PackageId>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <Authors>Marcelle Bond</Authors>
     <Company>Marcelle Bond</Company>
     <Description>CLI tool for rapidly bootstrapping .NET modular monolith applications with clean architecture</Description>
