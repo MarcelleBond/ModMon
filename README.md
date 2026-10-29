@@ -4,10 +4,10 @@ A powerful CLI tool for rapidly bootstrapping .NET modular monolith applications
 
 ## Features
 
-- ✅ Initialize complete .NET solution with API and SharedKernel projects
+- ✅ Initialize complete .NET solution with API, SharedKernel, `.gitignore`, and AI-agent guidance
 - ✅ Add new modules with database context, DI setup, and folder structure
 - ✅ Automatic dependency injection aggregation
-- ✅ DbUp migration management with versioned and repeatable scripts
+- ✅ Dual database migrations — EF Core schema migrations applied at startup, then DbUp versioned and repeatable scripts
 - ✅ Docker multi-stage builds with chiseled runtime images
 - ✅ Structured logging with Serilog (JSON format for observability)
 - ✅ Global exception handling and model validation
@@ -57,7 +57,7 @@ A powerful CLI tool for rapidly bootstrapping .NET modular monolith applications
 2. **Install the tool globally**
 
    ```bash
-   dotnet tool install --global ModMon --version 1.0.0
+   dotnet tool install --global ModMon --version 1.1.0
    ```
 
 3. **Verify installation**
@@ -92,8 +92,8 @@ This creates:
 - `MyProject.Api` - ASP.NET Core Web API project
 - `MyProject.SharedKernel` - Shared kernel library
 - `Dockerfile`, `docker-compose.yml`, `.dockerignore` - Docker setup
-- `.gitignore` - standard .NET ignore rules (preserved if one exists)
   (Postgres with a healthcheck; the API waits for the database)
+- `.gitignore` - standard .NET ignore rules (preserved if one exists)
 - `AGENTS.md` + `.agents/skills/modmon/` - AI-agent guidance files
 
 ### 2. Add a Module
@@ -103,10 +103,13 @@ modmon module add --name Orders
 ```
 
 This creates a complete module with:
-- Database context and migrations
+- Database context and EF Core migrations (`dotnet ef`)
 - Dependency injection setup
 - Folder structure for controllers, services, models, etc.
-- Automatic integration with the API project
+- Automatic integration with the API project — DI registration plus EF
+  Core and DbUp migration calls wired into the API aggregator
+- A `Microsoft.AspNetCore.App` framework reference so controllers are
+  discovered by the API host
 
 ### 3. Run the Application
 
@@ -200,6 +203,19 @@ modmon module list [--path <Path>] [--format json]
 
 ## Advanced Features
 
+### Database Migrations
+
+Generated projects apply two migration systems at startup, in a fixed
+order via `ApplyProjectMigrations` in the API's `DependencyInjection.cs`:
+
+1. **EF Core migrations** (`// <ef>` section) own entity schema —
+   tables, columns, and indexes from each module's DbContext.
+2. **DbUp scripts** (`// <dbup>` section) own supplemental objects —
+   views, functions, and seed data under `Database/Scripts/`.
+
+`module add` wires each new module into both marker sections. Keep
+ownership separate: never manage the same object in both systems.
+
 ### JSON Output
 
 All commands support `--format json` for machine-readable output. Stdout
@@ -276,7 +292,7 @@ dotnet run -- init --name TestProject
 dotnet pack --configuration Release
 ```
 
-The package will be created in `./nupkg/ModMon.1.0.0.nupkg`.
+The package will be created in `./nupkg/ModMon.1.1.0.nupkg`.
 
 ### Install Locally for Testing
 
@@ -289,8 +305,8 @@ dotnet tool install --global --add-source ./nupkg ModMon
 The project includes a GitHub Actions workflow that automatically publishes to GitHub Packages when you create a version tag:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.1.0
+git push origin v1.1.0
 ```
 
 Or manually trigger the workflow from GitHub Actions with a version number.
