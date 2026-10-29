@@ -92,8 +92,9 @@ This creates:
 - `MyProject.Api` - ASP.NET Core Web API project
 - `MyProject.SharedKernel` - Shared kernel library
 - `Dockerfile`, `docker-compose.yml`, `.dockerignore` - Docker setup
+- `.gitignore` - standard .NET ignore rules (preserved if one exists)
   (Postgres with a healthcheck; the API waits for the database)
-- `AGENTS.md` + `.agent/modmon/` - AI-agent guidance files
+- `AGENTS.md` + `.agents/skills/modmon/` - AI-agent guidance files
 
 ### 2. Add a Module
 
@@ -140,7 +141,7 @@ modmon init --name <ProjectName> [--output <Path>] [--format json] [--dry-run]
 - `--dry-run` (optional): Preview all changes without writing anything
 
 `init` also generates project-specific AI guidance in `AGENTS.md` and
-`.agent/modmon/`. ModMon-owned guidance files may be regenerated; existing
+`.agents/skills/modmon/`. ModMon-owned guidance files may be regenerated; existing
 unmarked user files are preserved.
 
 **Example:**
@@ -302,8 +303,9 @@ MyProject/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .dockerignore
+├── .gitignore
 ├── AGENTS.md
-├── .agent/modmon/
+├── .agents/skills/modmon/
 │   ├── SKILL.md
 │   ├── architecture-patterns.md
 │   └── quick-reference.md

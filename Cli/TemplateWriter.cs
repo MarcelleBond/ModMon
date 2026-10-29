@@ -57,6 +57,14 @@ internal sealed class TemplateWriter
 		return updater.AddModuleProject(dockerfile, projectName, moduleName);
 	}
 
+	public void WriteGitIgnore(string repoRoot)
+	{
+		_fileSystem.WriteFile(
+			Path.Combine(repoRoot, ".gitignore"),
+			Templates.GitIgnore(),
+			overwrite: false);
+	}
+
 	public void WriteSharedKernelTemplates(string repoRoot, string projectName)
 	{
 		var kernel = Path.Combine(repoRoot, $"{projectName}.SharedKernel");

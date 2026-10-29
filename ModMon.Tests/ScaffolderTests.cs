@@ -26,6 +26,25 @@ public sealed class ScaffolderTests
 			f => f.EndsWith("docker-compose.yml"));
 		Assert.Contains(
 			result.CreatedFiles!, f => f.EndsWith(".dockerignore"));
+		Assert.Contains(
+			result.CreatedFiles!, f => f.EndsWith(".gitignore"));
+	}
+
+	[Fact]
+	public async Task InitPreservesExistingGitIgnore()
+	{
+		var runner = new RecordingRunner();
+		var scaffolder = new InitScaffolder(_console, runner, _fs);
+		var gitignore = Path.Combine(_root, ".gitignore");
+		_fs.WriteFile(gitignore, "custom-rules", overwrite: false);
+
+		var result = await scaffolder.ScaffoldAsync(
+			_root, "Demo", new DryRunTracker(false));
+
+		Assert.True(result.Success);
+		Assert.Equal("custom-rules", _fs.ReadFile(gitignore));
+		Assert.DoesNotContain(
+			result.CreatedFiles!, f => f.EndsWith(".gitignore"));
 	}
 
 	[Fact]
@@ -77,11 +96,11 @@ public sealed class ScaffolderTests
 		Assert.True(result.MigrationCreated);
 		Assert.Null(result.Warnings);
 		Assert.NotEmpty(result.CreatedFiles!);
-		Assert.Contains(
-			"AddOrdersDI",
-			_fs.ReadFile(Path.Combine(
-				_root, "Demo.Api", "Extensions",
-				"DependencyInjection.cs")));
+		var di = _fs.ReadFile(Path.Combine(
+			_root, "Demo.Api", "Extensions",
+			"DependencyInjection.cs"));
+		Assert.Contains("AddOrdersDI", di);
+		Assert.Contains("MigrateDbContext<OrdersDbContext>(app);", di);
 	}
 
 	[Fact]
@@ -173,9 +192,11 @@ public static class DependencyInjection
 		return services;
 	}
 
-	public static WebApplication AddProjectDbUpMigrations(
+	public static WebApplication ApplyProjectMigrations(
 		this WebApplication app, IConfiguration c)
 	{
+		// <ef>
+		// </ef>
 		// <dbup>
 		// </dbup>
 		return app;

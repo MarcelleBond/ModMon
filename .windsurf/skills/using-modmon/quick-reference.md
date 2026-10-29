@@ -1,318 +1,112 @@
-# ModMon Quick Reference
+# {{projectName}} — ModMon Quick Reference
 
-## Command Cheat Sheet
-
-### Initialization
-```bash
-modmon init --name <ProjectName>                    # Create in current directory
-modmon init --name <ProjectName> --output <Path>    # Create in specific directory
-modmon init --name <ProjectName> --dry-run          # Preview without creating
-modmon init --name <ProjectName> --verbose          # Detailed logging
-```
-
-### Module Management
-```bash
-modmon module add --name <ModuleName>               # Add module to current solution
-modmon module add --name <ModuleName> --output <Path>  # Specify solution path
-modmon module list                                  # List all modules
-modmon module list --format json                    # JSON output
-```
-
-### Project Operations
-```bash
-modmon info                                         # Show project information
-modmon info --format json                           # JSON output
-modmon validate                                     # Validate project structure
-modmon validate --format json                       # JSON validation output
-```
-
-### Global Options
-```bash
---format json                                       # Machine-readable output
---dry-run                                          # Preview changes only
---verbose                                          # Enable detailed logging
---log-file <path>                                  # Save logs to file
---help, -h                                         # Show help information
-```
-
-## Common Command Combinations
-
-### New Project Setup
-```bash
-modmon init --name MyApp && cd MyApp && modmon module add --name Users && modmon validate
-```
-
-### Batch Module Creation
-```bash
-cd MyProject
-modmon module add --name Users
-modmon module add --name Products
-modmon module add --name Orders
-modmon validate
-```
-
-### CI/CD Validation
-```bash
-modmon validate --format json && modmon module list --format json
-```
-
-## File Structure Quick Reference
-
-### After `modmon init --name MyApp`
-```
-MyApp/
-├── AGENTS.md
-├── .agent/modmon/
-│   ├── SKILL.md
-│   ├── architecture-patterns.md
-│   └── quick-reference.md
-├── MyApp.sln
-├── Dockerfile
-├── docker-compose.yml
-├── MyApp.Api/
-│   ├── Program.cs
-│   ├── appsettings.json
-│   └── Extensions/
-└── MyApp.SharedKernel/
-    ├── Common/
-    ├── Database/
-    ├── Exceptions/
-    ├── Extensions/
-    └── Middleware/
-```
-
-### After `modmon module add --name Orders`
-```
-MyApp.Orders/
-├── AutoMapperProfiles/
-├── Controllers/
-├── Database/
-│   ├── OrdersDbContext.cs
-│   ├── Entities/
-│   ├── Migrations/
-│   └── Scripts/
-│       ├── Versioned/      # One-time migrations
-│       └── Repeatable/     # Views, functions, stored procedures
-├── Exceptions/
-├── Extensions/
-│   └── DependencyInjection.cs
-├── Interfaces/
-├── Models/
-└── Services/
-```
-
-## Error Messages & Solutions
-
-### "Solution file not found"
-**Solution:** Navigate to solution directory or use `--output` parameter
-```bash
-cd C:\Projects\MyApp
-# OR
-modmon module add --name Orders --output C:\Projects\MyApp
-```
-
-### "Module already exists"
-**Solution:** Check existing modules and use different name
-```bash
-modmon module list
-```
-
-### "dotnet-ef tool not found"
-**Solution:** Install Entity Framework tools
-```bash
-dotnet tool install --global dotnet-ef
-```
-
-### "Invalid project name"
-**Solution:** Use PascalCase without spaces or special characters
-```bash
-# Wrong: "My App", "My-App", "my_app"
-# Correct: "MyApp", "ECommerce", "OrderManagement"
-```
-
-## Docker Quick Commands
+## Commands
 
 ```bash
-# Build and run
-docker-compose up --build
-
-# Run in background
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop containers
-docker-compose down
-
-# Rebuild from scratch
-docker-compose down -v && docker-compose up --build
+modmon module add --name <Module> [--output <dir>] [--dry-run]
+modmon module list [--path <dir>]
+modmon info [--path <dir>]
+modmon validate [--path <dir>]
+modmon <cmd> --format json --verbose --log-file run.log
 ```
 
-## Database Connection Strings
+`--output` / `--path` default to the current directory; the tool locates
+`{{projectName}}.sln` from there.
 
-### Development (appsettings.Development.json)
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 | General failure |
+| 2 | Invalid arguments |
+| 3 | Already exists (solution / module directory) |
+| 4 | Not found (no .sln in scope) |
+| 5 | Validation failed (structure / boundaries) |
+| 6 | External tool error (dotnet / dotnet-ef) |
+| 7 | File-system error |
+| 8 | Network error (NuGet restore) |
+
+## Naming rule
+
+`^[A-Za-z][A-Za-z0-9_]*$` — letters, digits, underscores; must start with
+a letter. Applies to project and module names. `Orders`, `orders`,
+`Order_Mgmt` pass; `my-module`, `1Orders`, names with spaces fail.
+
+## JSON output (`--format json`)
+
+`modmon info`:
+
 ```json
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Host=localhost;Database=MyApp;Username=postgres;Password=postgres"
-  }
+  "projectName": "{{projectName}}",
+  "solutionPath": "...\\{{projectName}}.sln",
+  "repoRoot": "...",
+  "modules": [
+    { "name": "Orders", "path": "...\\{{projectName}}.Orders",
+      "hasDbContext": true, "hasMigrations": true }
+  ],
+  "projects": [
+    "{{projectName}}.Api",
+    "{{projectName}}.Orders",
+    "{{projectName}}.SharedKernel"
+  ]
 }
 ```
 
-### Docker (docker-compose.yml)
-```yaml
-environment:
-  - ConnectionStrings__DefaultConnection=Host=postgres;Database=MyApp;Username=postgres;Password=postgres
-```
+`modmon module list`: same `modules` entries plus `projectName` and
+`count`.
 
-## Module Naming Conventions
+`modmon validate` (failing):
 
-### ✅ Good Names
-- `Users`
-- `Products`
-- `OrderManagement`
-- `PaymentProcessing`
-- `InventoryTracking`
-
-### ❌ Bad Names
-- `User Management` (spaces)
-- `orders&products` (special characters)
-- `my-module` (hyphens in module names)
-- `Module1` (non-descriptive)
-
-## Typical Workflows
-
-### E-Commerce Application
-```bash
-modmon init --name ECommerce
-cd ECommerce
-modmon module add --name Products
-modmon module add --name Orders
-modmon module add --name Customers
-modmon module add --name Payments
-modmon module add --name Inventory
-modmon validate
-docker-compose up --build
-```
-
-### SaaS Platform
-```bash
-modmon init --name SaaSPlatform
-cd SaaSPlatform
-modmon module add --name Tenants
-modmon module add --name Users
-modmon module add --name Billing
-modmon module add --name Analytics
-modmon validate
-dotnet run --project SaaSPlatform.Api
-```
-
-### Microservices Preparation
-```bash
-modmon init --name ModularMonolith
-cd ModularMonolith
-modmon module add --name OrderProcessing
-modmon module add --name InventoryManagement
-modmon module add --name CustomerService
-# Each module can later be extracted to a microservice
-```
-
-## JSON Output Examples
-
-### Project Info
-```bash
-modmon info --format json
-```
 ```json
 {
-  "projectName": "MyApp",
-  "modules": ["Users", "Products", "Orders"],
-  "moduleCount": 3,
-  "solutionPath": "C:\\Projects\\MyApp\\MyApp.sln"
-}
-```
-
-### Validation
-
-Checks the project structure and project-reference graph. It does not analyze
-C# source usage; unresolved project configuration fails validation.
-
-```bash
-modmon validate --format json
-```
-```json
-{
-  "success": true,
-  "message": "Project structure or boundaries have issues",
-  "exitCode": "ValidationFailed",
-  "command": "validate",
   "valid": false,
-  "projectName": "MyApp",
+  "projectName": "{{projectName}}",
   "checks": [
     {
       "name": "Project reference boundary",
       "passed": false,
       "message": "Module-to-module project reference is not allowed",
       "ruleId": "project-boundary",
-      "projectPath": "MyApp.Orders.csproj"
+      "projectPath": "{{projectName}}.Orders.csproj"
     }
   ],
   "errors": [
-    "MyApp.Orders (Module) cannot reference MyApp.Products (Module)"
+    "{{projectName}}.Orders cannot reference {{projectName}}.Products"
   ]
 }
 ```
 
-### Module List
-```bash
-modmon module list --format json
+`modmon module add` adds `modulePath`, `migrationCreated`,
+`createdFiles`, `updatedFiles`, `warnings`; `--dry-run` adds
+`operations`.
+
+## Connection strings
+
+Development (`{{projectName}}.Api/appsettings.Development.json`):
+
 ```
-```json
-{
-  "modules": [
-    {
-      "name": "Users",
-      "path": "C:\\Projects\\MyApp\\MyApp.Users",
-      "hasDbContext": true,
-      "hasDependencyInjection": true
-    },
-    {
-      "name": "Products",
-      "path": "C:\\Projects\\MyApp\\MyApp.Products",
-      "hasDbContext": true,
-      "hasDependencyInjection": true
-    }
-  ]
-}
+Host=localhost;Port=5432;Database={{projectName}};Username={{projectName}};Password={{projectName}}-dev
 ```
 
-## Prerequisites Checklist
+Docker compose overrides it with `Host=db;...` — same database, user,
+and password pattern. Postgres 16 is published on `localhost:5432` and
+the API on `localhost:8080`.
 
-Before using ModMon, ensure:
-- [ ] .NET SDK 10.0+ installed (`dotnet --version`)
-- [ ] dotnet-ef tool installed (`dotnet tool list --global`)
-- [ ] PostgreSQL running (for local development)
-- [ ] Docker installed (optional, for containerized deployment)
+## Errors → fixes
 
-## Performance Tips
+| Error (exit) | Fix |
+| --- | --- |
+| "Module already exists" (3) | `modmon module list`; choose another name |
+| "Unable to infer project name" (4) | run inside the repo or pass `--output`/`--path` |
+| "Solution name ... is not a valid project name" (2) | rename the `.sln` to a valid identifier |
+| `dotnet-ef` not found | `dotnet tool install --global dotnet-ef`; module was still added — rerun `dotnet ef migrations add InitialCreate` manually |
+| "no markers" warnings | restore `// <modules>`/`// <ef>`/`// <dbup>` in the DI aggregator, `# <modules>` in the Dockerfile |
+| Boundary failure (5) | remove module→module/API project references; share through SharedKernel |
 
-1. **Use dry-run for large operations**
-   ```bash
-   modmon init --name LargeApp --dry-run --format json
-   ```
+## ModMon-owned files
 
-2. **Enable verbose logging only when troubleshooting**
-   ```bash
-   modmon module add --name Orders --verbose --log-file debug.log
-   ```
-
-3. **Use JSON output for scripting**
-   ```bash
-   MODULES=$(modmon module list --format json | jq -r '.modules[].name')
-   ```
-
-4. **Validate before committing**
-   ```bash
-   modmon validate || exit 1
-   ```
+Files marked `<!-- Generated by ModMon. Do not edit this file manually.
+-->` (`AGENTS.md`, `.agents/skills/modmon/*`) may be regenerated by
+ModMon. Unmarked files are preserved and reported as `skippedFiles`.

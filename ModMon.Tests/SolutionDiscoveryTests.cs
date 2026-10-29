@@ -108,6 +108,30 @@ public sealed class SolutionDiscoveryTests : IDisposable
 	{
 		SeedSolution("Demo", ("Demo.Orders", true));
 		var ordersDir = Path.Combine(_root, "Demo.Orders");
+		var migrationsDir = Path.Combine(
+			ordersDir, "Database", "Migrations");
+		Directory.CreateDirectory(migrationsDir);
+		File.WriteAllText(
+			Path.Combine(ordersDir, "Database", "OrdersDbContext.cs"),
+			"// ctx");
+		File.WriteAllText(
+			Path.Combine(migrationsDir, "OrdersDbContextModelSnapshot.cs"),
+			"// snapshot");
+
+		var lookup = new ProjectInfoProvider(
+			new PhysicalFileSystemWriter())
+			.GetProjectInfo(_root);
+
+		var module = Assert.Single(lookup.Info!.Modules);
+		Assert.True(module.HasDbContext);
+		Assert.True(module.HasMigrations);
+	}
+
+	[Fact]
+	public void ModuleScanReportsNoMigrationsWhenFolderIsEmpty()
+	{
+		SeedSolution("Demo", ("Demo.Orders", true));
+		var ordersDir = Path.Combine(_root, "Demo.Orders");
 		Directory.CreateDirectory(
 			Path.Combine(ordersDir, "Database", "Migrations"));
 		File.WriteAllText(
@@ -120,7 +144,7 @@ public sealed class SolutionDiscoveryTests : IDisposable
 
 		var module = Assert.Single(lookup.Info!.Modules);
 		Assert.True(module.HasDbContext);
-		Assert.True(module.HasMigrations);
+		Assert.False(module.HasMigrations);
 	}
 
 	[Fact]

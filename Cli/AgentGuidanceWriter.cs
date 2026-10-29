@@ -75,7 +75,8 @@ internal sealed class AgentGuidanceWriter
 		string repoRoot,
 		string projectName)
 	{
-		var agentRoot = Path.Combine(repoRoot, ".agent", "modmon");
+		var agentRoot = Path.Combine(
+			repoRoot, ".agents", "skills", "modmon");
 		return new List<GuidanceFile>
 		{
 			new(

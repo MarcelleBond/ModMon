@@ -233,9 +233,9 @@ When you run `modmon init --name MyProject`, the tool executes the following ste
 and generates project-specific AI guidance:
 
 - `AGENTS.md` for concise repository-level agent instructions
-- `.agent/modmon/SKILL.md` for ModMon workflows
-- `.agent/modmon/architecture-patterns.md` for architecture rules
-- `.agent/modmon/quick-reference.md` for common commands
+- `.agents/skills/modmon/SKILL.md` for ModMon workflows
+- `.agents/skills/modmon/architecture-patterns.md` for architecture rules
+- `.agents/skills/modmon/quick-reference.md` for common commands
 
 ModMon-owned guidance can be regenerated. Existing unmarked user files are
 preserved and reported as skipped.
@@ -281,6 +281,7 @@ Creates the following files:
 **Root Directory:**
 - `Dockerfile` - Multi-stage Docker build with chiseled runtime
 - `docker-compose.yml` - API + PostgreSQL orchestration
+- `.gitignore` - Standard .NET ignore rules (preserved if one exists)
 
 ### Generated API Program.cs Structure
 
@@ -303,8 +304,8 @@ builder.Services.AddSwaggerGen();
 // Module registration
 builder.Services.AddProjectModules(builder.Configuration);
 
-// DbUp migrations
-app.AddProjectDbUpMigrations(builder.Configuration);
+// EF Core migrations, then DbUp scripts
+app.ApplyProjectMigrations(builder.Configuration);
 
 // Middleware pipeline
 app.UseMiddleware<RequestGuidMiddleware>();
@@ -340,6 +341,13 @@ Installs:
 - Npgsql.EntityFrameworkCore.PostgreSQL
 - DbUp
 - dbup-postgresql
+
+Also injects into the module `.csproj`:
+- `<FrameworkReference Include="Microsoft.AspNetCore.App" />` — makes
+  the module's controllers auto-discoverable by the API (assemblies
+  are only scanned when they reference the ASP.NET Core framework)
+- `<EmbeddedResource>` for `Database\Scripts\**\*.sql` so DbUp finds
+  embedded migration scripts
 
 #### 4. **Sets Up Project References**
 
@@ -380,14 +388,18 @@ MyProject.Orders/
 Modifies `MyProject.Api/Extensions/DependencyInjection.cs`:
 
 ```csharp
-// Adds using statement
+// Adds using statements
+using MyProject.Orders.Database;
 using MyProject.Orders.Extensions;
 using OrdersDbUp = MyProject.Orders.Database.Scripts.DbUpMigrator;
 
 // Adds module registration
 services.AddOrdersDI(configuration);
 
-// Adds DbUp migration call
+// Adds EF Core migration call (runs first)
+MigrateDbContext<OrdersDbContext>(app);
+
+// Adds DbUp migration call (runs second)
 ThrowIfFailed("Orders", OrdersDbUp.TryMigrate(configuration));
 ```
 
@@ -422,6 +434,8 @@ MyProject/
 ├── MyProject.sln
 ├── Dockerfile
 ├── docker-compose.yml
+├── .dockerignore
+├── .gitignore
 ├── MyProject.Api/
 │   ├── MyProject.Api.csproj
 │   ├── Program.cs
@@ -480,19 +494,28 @@ MyProject/
 
 ### Database Strategy: Dual Migration System
 
-Each module uses **two migration strategies**:
+Each module uses **two migration strategies**, applied at startup in a fixed
+order — EF Core first, then DbUp:
 
-#### 1. **Entity Framework Core Migrations**
-- For schema changes during development
+#### 1. **Entity Framework Core Migrations** (run first)
+- Owns entity schema: tables, columns, indexes from the DbContext model
 - Type-safe, code-first approach
 - Located in `Database/Migrations/`
+- Applied via `MigrateDbContext<{Module}DbContext>(app)` in the `// <ef>`
+  section of `ApplyProjectMigrations`
 
-#### 2. **DbUp Migrations**
-- For production deployments
+#### 2. **DbUp Migrations** (run second)
+- Owns supplemental database objects: views, functions, seed data
 - SQL-based, version-controlled
 - Two types:
   - **Versioned** (`Database/Scripts/Versioned/`) - Run once, in order
   - **Repeatable** (`Database/Scripts/Repeatable/`) - Re-run when changed
+- Applied via `{Module}DbUp.TryMigrate(configuration)` in the `// <dbup>`
+  section of `ApplyProjectMigrations`
+
+**Ownership rule:** the two systems must not manage the same objects. If EF
+migrations create a table, no DbUp script should recreate it — the second
+system to run would fail.
 
 ### DbUp Configuration
 
@@ -865,6 +888,10 @@ The tool uses comment markers for safe updates:
 services.AddOrdersDI(configuration);
 // </modules>
 
+// <ef>
+MigrateDbContext<OrdersDbContext>(app);
+// </ef>
+
 // <dbup>
 ThrowIfFailed("Orders", OrdersDbUp.TryMigrate(configuration));
 // </dbup>
@@ -906,8 +933,9 @@ environment:
 - Use interfaces for cross-module communication
 
 ### 2. Database Migrations
-- Use EF migrations during development
-- Convert to DbUp SQL scripts for production
+- EF migrations own entity schema and run first at startup
+- DbUp scripts own views, functions, and seed data — they run second
+- Never manage the same object in both systems
 - Test migrations on staging environment
 
 ### 3. Naming Conventions

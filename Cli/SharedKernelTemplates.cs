@@ -486,8 +486,10 @@ public sealed class ModelStateValidationFilter : IActionFilter
 					.ToArray());
 
 		Log.Warning(
-			"ModelState validation failed for request {RequestId}.",
-			requestId);
+			"ModelState validation failed for request {RequestId}. " +
+			"Errors: {@Errors}",
+			requestId,
+			errors);
 
 		var messages = string.Join(
 			"; ",

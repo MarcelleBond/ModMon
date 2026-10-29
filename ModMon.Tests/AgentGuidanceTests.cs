@@ -18,9 +18,61 @@ public sealed class AgentGuidanceTests
 				Path.Combine(root, "AGENTS.md")));
 			Assert.True(File.Exists(Path.Combine(
 				root,
-				".agent",
+				".agents",
+				"skills",
 				"modmon",
 				"SKILL.md")));
+		}
+		finally
+		{
+			DeleteRoot(root);
+		}
+	}
+
+	[Fact]
+	public void GeneratedSkillHasFrontmatterBeforeOwnershipMarker()
+	{
+		var root = CreateRoot();
+		try
+		{
+			WriteGuidance(root, "Demo");
+
+			var skill = File.ReadAllText(Path.Combine(
+				root, ".agents", "skills", "modmon", "SKILL.md"))
+				.Replace("\r\n", "\n");
+
+			Assert.StartsWith("---\n", skill);
+			Assert.Contains("name: modmon", skill);
+			var frontmatterEnd = skill.IndexOf(
+				"---\n", 4, StringComparison.Ordinal);
+			var markerIndex = skill.IndexOf(
+				AgentGuidanceTemplates.OwnershipMarker,
+				StringComparison.Ordinal);
+			Assert.True(
+				frontmatterEnd > 0 && markerIndex > frontmatterEnd,
+				"Ownership marker must appear after the frontmatter");
+		}
+		finally
+		{
+			DeleteRoot(root);
+		}
+	}
+
+	[Fact]
+	public void GeneratedFilesSubstituteAllPlaceholders()
+	{
+		var root = CreateRoot();
+		try
+		{
+			WriteGuidance(root, "Demo");
+
+			foreach (var file in Directory.GetFiles(
+				Path.Combine(root, ".agents", "skills", "modmon")))
+			{
+				var content = File.ReadAllText(file);
+				Assert.DoesNotContain("{{", content);
+				Assert.Contains("Demo", content);
+			}
 		}
 		finally
 		{
@@ -36,7 +88,8 @@ public sealed class AgentGuidanceTests
 		{
 			var agentsPath = Path.Combine(root, "AGENTS.md");
 			File.WriteAllText(agentsPath, "User guidance");
-			var ownedPath = Path.Combine(root, ".agent", "modmon", "SKILL.md");
+			var ownedPath = Path.Combine(
+				root, ".agents", "skills", "modmon", "SKILL.md");
 			Directory.CreateDirectory(Path.GetDirectoryName(ownedPath)!);
 			File.WriteAllText(
 				ownedPath,

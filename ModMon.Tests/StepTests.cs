@@ -74,6 +74,9 @@ public sealed class StepTests
 		Assert.Contains(
 			"<EmbeddedResource Include=\"Database\\Scripts\\**\\*.sql\"",
 			updated);
+		Assert.Contains(
+			"<FrameworkReference Include=\"Microsoft.AspNetCore.App\"",
+			updated);
 		Assert.Equal(10, runner.Commands.Count);
 		Assert.Equal("new classlib -n Demo.Orders", runner.Commands[0]);
 	}
@@ -97,6 +100,27 @@ public sealed class StepTests
 
 		Assert.Equal(1, _fs.ReadFile(csproj)
 			.Split("EmbeddedResource").Length - 1);
+	}
+
+	[Fact]
+	public async Task ModuleStepsDoNotDuplicateFrameworkReference()
+	{
+		var runner = new RecordingRunner();
+		var csproj = Path.Combine(
+			_root, "Demo.Orders", "Demo.Orders.csproj");
+		_fs.WriteFile(
+			csproj,
+			"<Project>\n" +
+			"  <FrameworkReference Include=\"Microsoft.AspNetCore.App\" />\n" +
+			"</Project>\n",
+			overwrite: false);
+		var steps = new DotnetModuleSteps(runner, _console, _fs);
+
+		await steps.RunAsync(
+			_root, "Demo", "Demo.Api", "Demo.SharedKernel", "Demo.Orders");
+
+		Assert.Equal(1, _fs.ReadFile(csproj)
+			.Split("FrameworkReference").Length - 1);
 	}
 
 	[Fact]

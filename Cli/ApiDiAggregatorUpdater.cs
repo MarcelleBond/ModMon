@@ -6,6 +6,10 @@ internal sealed class ApiDiAggregatorUpdater
 	private const string MarkerEnd = "// </modules>";
 	private const string DbUpMarkerStart = "// <dbup>";
 	private const string DbUpMarkerEnd = "// </dbup>";
+	private const string EfMarkerStart = "// <ef>";
+	private const string EfMarkerEnd = "// </ef>";
+	private const string EfCoreUsing =
+		"using Microsoft.EntityFrameworkCore;";
 	private readonly IFileSystemWriter _fileSystem;
 
 	public ApiDiAggregatorUpdater(IFileSystemWriter fileSystem)
@@ -27,8 +31,13 @@ internal sealed class ApiDiAggregatorUpdater
 		var newLine = content.Contains("\r\n", StringComparison.Ordinal)
 			? "\r\n"
 			: "\n";
-		content = AddUsingIfMissing(content, projectName, moduleName);
-		content = AddDbUpAliasIfMissing(content, projectName, moduleName);
+		content = AddUsingLineIfMissing(
+			content,
+			$"using {projectName}.{moduleName}.Extensions;");
+		content = AddUsingLineIfMissing(
+			content,
+			$"using {moduleName}DbUp = {projectName}.{moduleName}." +
+			"Database.Scripts.DbUpMigrator;");
 
 		var start = content.IndexOf(MarkerStart, StringComparison.Ordinal);
 		var end = content.IndexOf(MarkerEnd, StringComparison.Ordinal);
@@ -53,8 +62,41 @@ internal sealed class ApiDiAggregatorUpdater
 			projectName,
 			moduleName,
 			newLine);
+		updated = AddEfIfMissing(
+			updated,
+			projectName,
+			moduleName,
+			newLine);
 		_fileSystem.WriteFile(filePath, updated, overwrite: true);
 		return true;
+	}
+
+	private static string AddEfIfMissing(
+		string content,
+		string projectName,
+		string moduleName,
+		string newLine)
+	{
+		var start = content.IndexOf(EfMarkerStart, StringComparison.Ordinal);
+		var end = content.IndexOf(EfMarkerEnd, StringComparison.Ordinal);
+		if (start < 0 || end < 0 || end <= start)
+		{
+			return content;
+		}
+
+		var call = $"MigrateDbContext<{moduleName}DbContext>(app);";
+		if (content.Contains(call, StringComparison.Ordinal))
+		{
+			return content;
+		}
+
+		var insertionPoint = start + EfMarkerStart.Length;
+		var toInsert = $"{newLine}\t\t{call}";
+		var updated = content.Insert(insertionPoint, toInsert);
+		updated = AddUsingLineIfMissing(
+			updated,
+			$"using {projectName}.{moduleName}.Database;");
+		return AddUsingLineIfMissing(updated, EfCoreUsing);
 	}
 
 	private static string AddDbUpIfMissing(
@@ -84,46 +126,10 @@ internal sealed class ApiDiAggregatorUpdater
 		return content.Insert(insertionPoint, toInsert);
 	}
 
-	private static string AddDbUpAliasIfMissing(
+	private static string AddUsingLineIfMissing(
 		string content,
-		string projectName,
-		string moduleName)
+		string usingLine)
 	{
-		var aliasLine =
-			$"using {moduleName}DbUp = {projectName}.{moduleName}." +
-			"Database.Scripts.DbUpMigrator;";
-		if (content.Contains(aliasLine, StringComparison.Ordinal))
-		{
-			return content;
-		}
-
-		var newLine = content.Contains("\r\n", StringComparison.Ordinal)
-			? "\r\n"
-			: "\n";
-		var lines = content.Split(newLine);
-		var insertAt = 0;
-		for (var i = 0; i < lines.Length; i++)
-		{
-			if (lines[i].StartsWith("using ", StringComparison.Ordinal))
-			{
-				insertAt = i + 1;
-				continue;
-			}
-
-			break;
-		}
-
-		var list = lines.ToList();
-		list.Insert(insertAt, aliasLine);
-		return string.Join(newLine, list);
-	}
-
-	private static string AddUsingIfMissing(
-		string content,
-		string projectName,
-		string moduleName)
-	{
-		var usingLine = $"using {projectName}.{moduleName}.Extensions;";
 		if (content.Contains(usingLine, StringComparison.Ordinal))
 		{
 			return content;

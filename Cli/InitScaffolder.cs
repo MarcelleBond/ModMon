@@ -31,8 +31,9 @@ internal sealed class InitScaffolder
 			Path.Combine(repoRoot, "Dockerfile"),
 			Path.Combine(repoRoot, "docker-compose.yml"),
 			Path.Combine(repoRoot, ".dockerignore"),
+			Path.Combine(repoRoot, ".gitignore"),
 			Path.Combine(repoRoot, "AGENTS.md"),
-			Path.Combine(repoRoot, ".agent", "modmon")
+			Path.Combine(repoRoot, ".agents", "skills", "modmon")
 		};
 		var preExisting = artifacts.Where(PathExists).ToList();
 
@@ -93,6 +94,7 @@ internal sealed class InitScaffolder
 		var writer = new TemplateWriter(writes);
 		writer.WriteApiBaseline(repoRoot, projectName);
 		writer.WriteRootDockerFiles(repoRoot, projectName);
+		writer.WriteGitIgnore(repoRoot);
 		writer.WriteSharedKernelTemplates(repoRoot, projectName);
 		writer.WriteApiDiAggregator(repoRoot, projectName);
 		var guidance = new AgentGuidanceWriter(writes)

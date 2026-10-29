@@ -22,7 +22,13 @@ public sealed class UpdaterTests
 		Assert.Contains("services.AddOrdersDI(configuration);", content);
 		Assert.Contains("OrdersDbUp", content);
 		Assert.Contains(
+			"MigrateDbContext<OrdersDbContext>(app);", content);
+		Assert.Contains(
 			"using Demo.Orders.Extensions;", content);
+		Assert.Contains(
+			"using Demo.Orders.Database;", content);
+		Assert.Contains(
+			"using Microsoft.EntityFrameworkCore;", content);
 	}
 
 	[Fact]
@@ -38,6 +44,8 @@ public sealed class UpdaterTests
 		var content = _fs.ReadFile(DiPath);
 		Assert.Equal(1, content.Split(
 			"services.AddOrdersDI(configuration);").Length - 1);
+		Assert.Equal(1, content.Split(
+			"MigrateDbContext<OrdersDbContext>(app);").Length - 1);
 	}
 
 	[Fact]
@@ -120,10 +128,12 @@ public static class DependencyInjection
 		return services;
 	}
 
-	public static WebApplication AddProjectDbUpMigrations(
+	public static WebApplication ApplyProjectMigrations(
 		this WebApplication app,
 		IConfiguration configuration)
 	{
+		// <ef>
+		// </ef>
 		// <dbup>
 		// </dbup>
 		return app;

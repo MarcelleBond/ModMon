@@ -42,7 +42,7 @@ All commands support these global options:
 - `--verbose` (optional) - Enable verbose logging
 - `--log-file <path>` (optional) - Log to file
 
-`init` generates project-specific `AGENTS.md` and `.agent/modmon/`
+`init` generates project-specific `AGENTS.md` and `.agents/skills/modmon/`
 guidance. ModMon-owned files may be updated; unmarked existing user files are
 preserved and reported in `skippedFiles`.
 
@@ -62,10 +62,11 @@ preserved and reported in `skippedFiles`.
     "ECommerce.SharedKernel"
   ],
   "createdFiles": [
+    "C:\\Projects\\ECommerce\\.gitignore",
     "C:\\Projects\\ECommerce\\AGENTS.md",
-    "C:\\Projects\\ECommerce\\.agent\\modmon\\SKILL.md",
-    "C:\\Projects\\ECommerce\\.agent\\modmon\\architecture-patterns.md",
-    "C:\\Projects\\ECommerce\\.agent\\modmon\\quick-reference.md"
+    "C:\\Projects\\ECommerce\\.agents\\skills\\modmon\\SKILL.md",
+    "C:\\Projects\\ECommerce\\.agents\\skills\\modmon\\architecture-patterns.md",
+    "C:\\Projects\\ECommerce\\.agents\\skills\\modmon\\quick-reference.md"
   ],
   "skippedFiles": [],
   "dryRun": false

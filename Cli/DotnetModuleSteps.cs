@@ -51,6 +51,7 @@ internal sealed class DotnetModuleSteps
 			Path.Combine(repoRoot, moduleProject, "Class1.cs"));
 
 		EnsureDbUpScriptsEmbedded(repoRoot, moduleProject);
+		EnsureAspNetCoreFrameworkReference(repoRoot, moduleProject);
 
 		return 0;
 	}
@@ -67,6 +68,39 @@ internal sealed class DotnetModuleSteps
 		string repoRoot,
 		string moduleProject)
 	{
+		EnsureItemGroupInCsproj(
+			repoRoot,
+			moduleProject,
+			"Database\\Scripts\\**\\*.sql",
+			new[]
+			{
+				"    <EmbeddedResource Include=\"Database\\Scripts\\**\\*.sql\" />",
+				"    <None Update=\"Database\\Scripts\\**\\*.sql\" " +
+					"CopyToOutputDirectory=\"Never\" />"
+			});
+	}
+
+	private void EnsureAspNetCoreFrameworkReference(
+		string repoRoot,
+		string moduleProject)
+	{
+		EnsureItemGroupInCsproj(
+			repoRoot,
+			moduleProject,
+			"Microsoft.AspNetCore.App",
+			new[]
+			{
+				"    <FrameworkReference " +
+					"Include=\"Microsoft.AspNetCore.App\" />"
+			});
+	}
+
+	private void EnsureItemGroupInCsproj(
+		string repoRoot,
+		string moduleProject,
+		string guardText,
+		string[] itemGroupEntries)
+	{
 		var csprojPath = Path.Combine(
 			repoRoot,
 			moduleProject,
@@ -77,7 +111,7 @@ internal sealed class DotnetModuleSteps
 		}
 
 		var content = _fileSystem.ReadFile(csprojPath);
-		if (content.Contains("Database\\Scripts\\**\\*.sql"))
+		if (content.Contains(guardText, StringComparison.Ordinal))
 		{
 			return;
 		}
@@ -94,15 +128,14 @@ internal sealed class DotnetModuleSteps
 		var newLine = content.Contains("\r\n", StringComparison.Ordinal)
 			? "\r\n"
 			: "\n";
-		var itemGroup = string.Join(
-			newLine,
-			"  <ItemGroup>",
-			"    <EmbeddedResource Include=\"Database\\Scripts\\**\\*.sql\" />",
-			"    <None Update=\"Database\\Scripts\\**\\*.sql\" CopyToOutputDirectory=\"Never\" />",
-			"  </ItemGroup>",
-			string.Empty);
+		var lines = new List<string> { "  <ItemGroup>" };
+		lines.AddRange(itemGroupEntries);
+		lines.Add("  </ItemGroup>");
+		lines.Add(string.Empty);
 
-		var updated = content.Insert(index, itemGroup + newLine);
+		var updated = content.Insert(
+			index,
+			string.Join(newLine, lines) + newLine);
 		_fileSystem.WriteFile(csprojPath, updated, overwrite: true);
 	}
 }

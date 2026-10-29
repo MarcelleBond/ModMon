@@ -69,6 +69,53 @@ public sealed class TemplateTests
 	}
 
 	[Fact]
+	public void GitIgnoreExcludesBuildOutputsAndEditors()
+	{
+		var ignore = Templates.GitIgnore();
+
+		Assert.Contains("[Bb]in/", ignore);
+		Assert.Contains("[Oo]bj/", ignore);
+		Assert.Contains(".vs/", ignore);
+		Assert.Contains(".idea/", ignore);
+		Assert.Contains("[Tt]est[Rr]esult*/", ignore);
+	}
+
+	[Fact]
+	public void ApiProgramAppliesMigrationsBeforeRun()
+	{
+		var program = Templates.ApiProgram("Demo");
+
+		var migrations = program.IndexOf(
+			"app.ApplyProjectMigrations(builder.Configuration);",
+			StringComparison.Ordinal);
+		var run = program.IndexOf("app.Run();", StringComparison.Ordinal);
+		Assert.InRange(migrations, 0, run);
+	}
+
+	[Fact]
+	public void AggregatorRunsEfMigrationsBeforeDbUp()
+	{
+		var aggregator = Templates.ApiModulesAggregator(
+			"Demo", new[] { "Orders", "Products" });
+
+		var ef = aggregator.IndexOf("// <ef>", StringComparison.Ordinal);
+		var dbup = aggregator.IndexOf(
+			"// <dbup>", StringComparison.Ordinal);
+		Assert.InRange(ef, 0, dbup);
+		Assert.Contains(
+			"MigrateDbContext<OrdersDbContext>(app);", aggregator);
+		Assert.Contains(
+			"MigrateDbContext<ProductsDbContext>(app);", aggregator);
+		Assert.Contains("using Demo.Orders.Database;", aggregator);
+		Assert.Contains(
+			"using Microsoft.EntityFrameworkCore;", aggregator);
+		Assert.Contains(
+			"ThrowIfFailed(\"Orders\", " +
+			"OrdersDbUp.TryMigrate(configuration));",
+			aggregator);
+	}
+
+	[Fact]
 	public void ModuleMigratorEnsuresSchemaBeforeUpgrade()
 	{
 		var fs = new FakeFileSystemWriter();

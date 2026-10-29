@@ -65,8 +65,11 @@ internal sealed class ProjectInfoProvider
 			var moduleName = dirName.Substring(projectName.Length + 1);
 			var hasDbContext = _fileSystem.FileExists(
 				Path.Combine(dir, "Database", $"{moduleName}DbContext.cs"));
-			var hasMigrations = _fileSystem.DirectoryExists(
-				Path.Combine(dir, "Database", "Migrations"));
+			var migrationsDir = Path.Combine(
+				dir, "Database", "Migrations");
+			var hasMigrations = _fileSystem.DirectoryExists(migrationsDir)
+				&& Directory.GetFiles(
+					migrationsDir, "*ModelSnapshot.cs").Length > 0;
 
 			modules.Add(new ModuleInfo(
 				moduleName,
