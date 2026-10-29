@@ -335,6 +335,7 @@ MyProject/
 ├── MyProject.SharedKernel/
 │   ├── Common/
 │   ├── Database/Entities/
+│   ├── Events/
 │   ├── Exceptions/
 │   ├── Extensions/
 │   └── Middleware/
