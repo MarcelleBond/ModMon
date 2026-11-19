@@ -9,7 +9,8 @@ public sealed class GuidanceTemplateTests
 		"AGENTS.md",
 		"SKILL.md",
 		"architecture-patterns.md",
-		"quick-reference.md"
+		"quick-reference.md",
+		"openapi-sdk-generation.md"
 	};
 
 	[Fact]
@@ -30,6 +31,17 @@ public sealed class GuidanceTemplateTests
 			Assert.Contains(
 				AgentGuidanceTemplates.OwnershipMarker, output);
 		}
+	}
+
+	[Fact]
+	public void SdkSkillTemplateSubstitutesProjectTokens()
+	{
+		var output = AgentGuidanceTemplates.OpenApiSdkGeneration("Demo");
+
+		Assert.DoesNotContain("{{projectName", output);
+		Assert.Contains("Demo", output);
+		Assert.Contains(
+			AgentGuidanceTemplates.OwnershipMarker, output);
 	}
 
 	[Fact]

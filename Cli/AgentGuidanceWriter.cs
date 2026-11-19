@@ -75,22 +75,19 @@ internal sealed class AgentGuidanceWriter
 		string repoRoot,
 		string projectName)
 	{
-		var agentRoot = Path.Combine(
-			repoRoot, ".agents", "skills", "modmon");
+		var root = Path.Combine(repoRoot, ".agents", "skills");
 		return new List<GuidanceFile>
 		{
-			new(
-				Path.Combine(repoRoot, "AGENTS.md"),
+			new(Path.Combine(repoRoot, "AGENTS.md"),
 				AgentGuidanceTemplates.Agents(projectName)),
-			new(
-				Path.Combine(agentRoot, "SKILL.md"),
+			new(Path.Combine(root, "modmon", "SKILL.md"),
 				AgentGuidanceTemplates.Skill(projectName)),
-			new(
-				Path.Combine(agentRoot, "architecture-patterns.md"),
+			new(Path.Combine(root, "modmon", "architecture-patterns.md"),
 				AgentGuidanceTemplates.Architecture(projectName)),
-			new(
-				Path.Combine(agentRoot, "quick-reference.md"),
-				AgentGuidanceTemplates.QuickReference(projectName))
+			new(Path.Combine(root, "modmon", "quick-reference.md"),
+				AgentGuidanceTemplates.QuickReference(projectName)),
+			new(Path.Combine(root, "openapi-sdk-generation", "SKILL.md"),
+				AgentGuidanceTemplates.OpenApiSdkGeneration(projectName))
 		};
 	}
 

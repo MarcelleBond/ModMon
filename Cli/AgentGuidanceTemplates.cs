@@ -29,6 +29,11 @@ internal static class AgentGuidanceTemplates
 		return Load("quick-reference.md", projectName);
 	}
 
+	public static string OpenApiSdkGeneration(string projectName)
+	{
+		return Load("openapi-sdk-generation.md", projectName);
+	}
+
 	private static string Load(string fileName, string projectName)
 	{
 		var resourceName = ResourcePrefix + fileName;

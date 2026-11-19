@@ -12,7 +12,7 @@ public sealed class AgentGuidanceTests
 		{
 			var result = WriteGuidance(root, "Demo");
 
-			Assert.Equal(4, result.CreatedFiles.Count);
+			Assert.Equal(5, result.CreatedFiles.Count);
 			Assert.Empty(result.SkippedFiles);
 			Assert.Contains("Demo", File.ReadAllText(
 				Path.Combine(root, "AGENTS.md")));
@@ -21,6 +21,12 @@ public sealed class AgentGuidanceTests
 				".agents",
 				"skills",
 				"modmon",
+				"SKILL.md")));
+			Assert.True(File.Exists(Path.Combine(
+				root,
+				".agents",
+				"skills",
+				"openapi-sdk-generation",
 				"SKILL.md")));
 		}
 		finally
@@ -65,13 +71,17 @@ public sealed class AgentGuidanceTests
 		try
 		{
 			WriteGuidance(root, "Demo");
+			var skillsRoot = Path.Combine(root, ".agents", "skills");
 
 			foreach (var file in Directory.GetFiles(
-				Path.Combine(root, ".agents", "skills", "modmon")))
+				Path.Combine(skillsRoot, "modmon")))
 			{
-				var content = File.ReadAllText(file);
-				Assert.DoesNotContain("{{", content);
-				Assert.Contains("Demo", content);
+				AssertPlaceholdersSubstituted(file, "{{");
+			}
+			foreach (var file in Directory.GetFiles(
+				Path.Combine(skillsRoot, "openapi-sdk-generation")))
+			{
+				AssertPlaceholdersSubstituted(file, "{{projectName");
 			}
 		}
 		finally
@@ -119,14 +129,23 @@ public sealed class AgentGuidanceTests
 				new PhysicalFileSystemWriter());
 			var result = writer.WriteAll(root, "Demo", tracker);
 
-			Assert.Equal(4, result.CreatedFiles.Count);
-			Assert.Equal(4, tracker.GetOperations().Count);
+			Assert.Equal(5, result.CreatedFiles.Count);
+			Assert.Equal(5, tracker.GetOperations().Count);
 			Assert.False(File.Exists(Path.Combine(root, "AGENTS.md")));
 		}
 		finally
 		{
 			DeleteRoot(root);
 		}
+	}
+
+	private static void AssertPlaceholdersSubstituted(
+		string file,
+		string forbidden)
+	{
+		var content = File.ReadAllText(file);
+		Assert.DoesNotContain(forbidden, content);
+		Assert.Contains("Demo", content);
 	}
 
 	private static AgentGuidanceWriteResult WriteGuidance(
